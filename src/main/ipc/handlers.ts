@@ -1,13 +1,23 @@
 import { app } from 'electron';
+import type { ServerProfile, ServerProfileInput } from '@shared/schemas';
+import type { ChatService } from '@main/chat/service';
 import type { Database } from '@main/db/client';
 import { sqliteVersion } from '@main/db/client';
+import type { ConversationRepository } from '@main/db/repositories/conversations';
+import type { MessageRepository } from '@main/db/repositories/messages';
+import type { ServerProfileRepository } from '@main/db/repositories/server-profiles';
 import type { ResolvedPaths } from '@main/paths';
+import { getAdapter } from '@main/providers';
 import { SettingsRepository } from '@main/settings/repository';
 import { handleIpc } from './register';
 
 export interface AppContext {
   db: Database;
   paths: ResolvedPaths;
+  profiles: ServerProfileRepository;
+  conversations: ConversationRepository;
+  messages: MessageRepository;
+  chat: ChatService;
 }
 
 export function registerIpcHandlers(ctx: AppContext): void {
@@ -32,4 +42,79 @@ export function registerIpcHandlers(ctx: AppContext): void {
     return undefined;
   });
   handleIpc('settings:all', () => settings.all());
+
+  // --- サーバープロファイル ---
+  handleIpc('profiles:list', () => ctx.profiles.list());
+  handleIpc('profiles:create', (input) => ctx.profiles.create(input));
+  handleIpc('profiles:update', ({ id, patch }) => {
+    const p = ctx.profiles.update(id, patch);
+    if (!p) throw new Error('プロファイルが見つかりません');
+    return p;
+  });
+  handleIpc('profiles:delete', ({ id }) => ctx.profiles.delete(id));
+  handleIpc('profiles:models', async ({ profileId }) => {
+    const p = ctx.profiles.get(profileId);
+    if (!p) throw new Error('プロファイルが見つかりません');
+    return getAdapter(p.kind).listModels(p);
+  });
+  handleIpc('profiles:test', async (input) => {
+    const temp = tempProfile(input);
+    try {
+      const models = await getAdapter(temp.kind).listModels(temp);
+      return { ok: true, models, error: null };
+    } catch (e) {
+      return { ok: false, models: [], error: (e as Error).message };
+    }
+  });
+  handleIpc('models:capabilities', async ({ profileId, model }) => {
+    const p = ctx.profiles.get(profileId);
+    if (!p) throw new Error('プロファイルが見つかりません');
+    return ctx.chat.capabilitiesFor(p, model);
+  });
+
+  // --- 会話 ---
+  handleIpc('conversations:list', () => ctx.conversations.list());
+  handleIpc('conversations:create', ({ serverProfileId, model }) => {
+    // プロファイル未指定なら最初のプロファイルを既定にする
+    const profile =
+      (serverProfileId ? ctx.profiles.get(serverProfileId) : null) ??
+      ctx.profiles.list()[0] ??
+      null;
+    return ctx.conversations.create({
+      serverProfileId: profile?.id ?? null,
+      model: model ?? profile?.defaultModel ?? null,
+    });
+  });
+  handleIpc('conversations:get', ({ id }) => ctx.conversations.get(id));
+  handleIpc('conversations:update', ({ id, patch }) => {
+    const c = ctx.conversations.update(id, patch, { touch: false });
+    if (!c) throw new Error('会話が見つかりません');
+    return c;
+  });
+  handleIpc('conversations:delete', ({ id }) => {
+    const running = ctx.chat.isRunning(id);
+    if (running) ctx.chat.abort(running);
+    return ctx.conversations.delete(id);
+  });
+
+  // --- メッセージ ---
+  handleIpc('messages:path', ({ conversationId }) => {
+    const conv = ctx.conversations.get(conversationId);
+    if (!conv?.activeLeafId) return [];
+    return ctx.messages.pathToRoot(conv.activeLeafId);
+  });
+  handleIpc('messages:search', ({ query, limit }) => ctx.messages.search(query, limit));
+
+  // --- チャット ---
+  handleIpc('chat:send', ({ conversationId, text }) => {
+    if (ctx.chat.isRunning(conversationId)) throw new Error('この会話は応答生成中です');
+    return ctx.chat.send({ conversationId, text });
+  });
+  handleIpc('chat:regenerate', ({ messageId }) => ctx.chat.regenerate(messageId));
+  handleIpc('chat:abort', ({ runId }) => ctx.chat.abort(runId));
+  handleIpc('chat:running', ({ conversationId }) => ctx.chat.isRunning(conversationId));
+}
+
+function tempProfile(input: ServerProfileInput): ServerProfile {
+  return { ...input, id: 'temp', createdAt: 0, updatedAt: 0 };
 }

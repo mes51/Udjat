@@ -27,13 +27,14 @@ export function handleIpc<C extends IpcInvokeChannel>(channel: C, handler: Handl
   });
 }
 
-/** 型付き main -> renderer イベント送信。 */
-export function sendIpcEvent<C extends IpcEventChannel>(
-  win: BrowserWindow,
+/** 型付き main -> renderer イベント送信(全ウィンドウへ)。 */
+export function broadcastIpcEvent<C extends IpcEventChannel>(
   channel: C,
   payload: IpcEventPayload<C>,
 ): void {
   const schema = ipcEventSchema[channel] as { parse(v: unknown): unknown };
   schema.parse(payload);
-  if (!win.isDestroyed()) win.webContents.send(channel, payload);
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (!win.isDestroyed()) win.webContents.send(channel, payload);
+  }
 }

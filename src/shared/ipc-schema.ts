@@ -1,5 +1,15 @@
 import { z } from 'zod';
 import type { IpcEventChannel, IpcInvokeChannel } from './ipc-channels';
+import {
+  CapabilitiesSchema,
+  ChatRunEventSchema,
+  ConversationPatchSchema,
+  ConversationSchema,
+  MessageSchema,
+  ModelInfoSchema,
+  ServerProfileInputSchema,
+  ServerProfileSchema,
+} from './schemas';
 
 /**
  * IPC の入出力スキーマ。main 側で入力を検証し、renderer 側では型として使う。
@@ -34,26 +44,87 @@ const JsonValue: z.ZodType<unknown> = z.lazy(() =>
   ]),
 );
 
+const Id = z.object({ id: z.string().min(1) });
+
+export const RunHandleSchema = z.object({
+  runId: z.string(),
+  conversationId: z.string(),
+  userMessageId: z.string().nullable(),
+  assistantMessageId: z.string(),
+});
+export type RunHandle = z.infer<typeof RunHandleSchema>;
+
+export const ConnectionTestResultSchema = z.object({
+  ok: z.boolean(),
+  models: z.array(ModelInfoSchema),
+  error: z.string().nullable(),
+});
+export type ConnectionTestResult = z.infer<typeof ConnectionTestResultSchema>;
+
 export const ipcInvokeSchema = {
-  'app:info': {
-    input: z.undefined(),
-    output: AppInfoSchema,
-  },
-  'settings:get': {
-    input: z.object({ key: z.string().min(1) }),
-    output: JsonValue.nullable(),
-  },
+  'app:info': { input: z.undefined(), output: AppInfoSchema },
+  'settings:get': { input: z.object({ key: z.string().min(1) }), output: JsonValue.nullable() },
   'settings:set': {
     input: z.object({ key: z.string().min(1), value: JsonValue }),
     output: z.undefined(),
   },
-  'settings:all': {
-    input: z.undefined(),
-    output: z.record(z.string(), JsonValue),
+  'settings:all': { input: z.undefined(), output: z.record(z.string(), JsonValue) },
+
+  'profiles:list': { input: z.undefined(), output: z.array(ServerProfileSchema) },
+  'profiles:create': { input: ServerProfileInputSchema, output: ServerProfileSchema },
+  'profiles:update': {
+    input: z.object({ id: z.string().min(1), patch: ServerProfileInputSchema.partial() }),
+    output: ServerProfileSchema,
+  },
+  'profiles:delete': { input: Id, output: z.boolean() },
+  'profiles:models': {
+    input: z.object({ profileId: z.string().min(1) }),
+    output: z.array(ModelInfoSchema),
+  },
+  'profiles:test': { input: ServerProfileInputSchema, output: ConnectionTestResultSchema },
+  'models:capabilities': {
+    input: z.object({ profileId: z.string().min(1), model: z.string().min(1) }),
+    output: CapabilitiesSchema,
+  },
+
+  'conversations:list': { input: z.undefined(), output: z.array(ConversationSchema) },
+  'conversations:create': {
+    input: z.object({ serverProfileId: z.string().nullable(), model: z.string().nullable() }),
+    output: ConversationSchema,
+  },
+  'conversations:get': { input: Id, output: ConversationSchema.nullable() },
+  'conversations:update': {
+    input: z.object({ id: z.string().min(1), patch: ConversationPatchSchema }),
+    output: ConversationSchema,
+  },
+  'conversations:delete': { input: Id, output: z.boolean() },
+
+  'messages:path': {
+    input: z.object({ conversationId: z.string().min(1) }),
+    output: z.array(MessageSchema),
+  },
+  'messages:search': {
+    input: z.object({ query: z.string(), limit: z.number().int().min(1).max(200).optional() }),
+    output: z.array(
+      z.object({ messageId: z.string(), conversationId: z.string(), snippet: z.string() }),
+    ),
+  },
+
+  'chat:send': {
+    input: z.object({ conversationId: z.string().min(1), text: z.string().min(1) }),
+    output: RunHandleSchema,
+  },
+  'chat:regenerate': { input: z.object({ messageId: z.string().min(1) }), output: RunHandleSchema },
+  'chat:abort': { input: z.object({ runId: z.string().min(1) }), output: z.boolean() },
+  'chat:running': {
+    input: z.object({ conversationId: z.string().min(1) }),
+    output: z.string().nullable(),
   },
 } as const satisfies Record<IpcInvokeChannel, { input: z.ZodType; output: z.ZodType }>;
 
-export const ipcEventSchema = {} as const satisfies Record<IpcEventChannel, z.ZodType>;
+export const ipcEventSchema = {
+  'chat:event': ChatRunEventSchema,
+} as const satisfies Record<IpcEventChannel, z.ZodType>;
 
 export type IpcInvokeSchema = typeof ipcInvokeSchema;
 export type IpcInput<C extends IpcInvokeChannel> = z.input<IpcInvokeSchema[C]['input']>;

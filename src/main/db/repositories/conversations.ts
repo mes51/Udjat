@@ -1,0 +1,122 @@
+import type { Conversation, ConversationPatch } from '@shared/schemas';
+import { newId } from '@main/util/id';
+import type { Database } from '../client';
+
+interface Row {
+  id: string;
+  title: string;
+  pinned: number;
+  server_profile_id: string | null;
+  model: string | null;
+  system_prompt: string | null;
+  params: string;
+  enabled_tools: string | null;
+  active_leaf_id: string | null;
+  created_at: number;
+  updated_at: number;
+}
+
+function fromRow(r: Row): Conversation {
+  return {
+    id: r.id,
+    title: r.title,
+    pinned: r.pinned === 1,
+    serverProfileId: r.server_profile_id,
+    model: r.model,
+    systemPrompt: r.system_prompt,
+    params: JSON.parse(r.params) as Conversation['params'],
+    enabledTools: r.enabled_tools ? (JSON.parse(r.enabled_tools) as string[]) : null,
+    activeLeafId: r.active_leaf_id,
+    createdAt: r.created_at,
+    updatedAt: r.updated_at,
+  };
+}
+
+export interface ConversationCreate {
+  serverProfileId: string | null;
+  model: string | null;
+  systemPrompt?: string | null;
+  params?: Conversation['params'];
+  title?: string;
+}
+
+export class ConversationRepository {
+  constructor(private readonly db: Database) {}
+
+  list(): Conversation[] {
+    return (
+      this.db
+        .prepare('SELECT * FROM conversations ORDER BY pinned DESC, updated_at DESC')
+        .all() as unknown as Row[]
+    ).map(fromRow);
+  }
+
+  get(id: string): Conversation | null {
+    const row = this.db.prepare('SELECT * FROM conversations WHERE id = ?').get(id) as unknown as
+      Row | undefined;
+    return row ? fromRow(row) : null;
+  }
+
+  create(input: ConversationCreate): Conversation {
+    const now = Date.now();
+    const id = newId(now);
+    this.db
+      .prepare(
+        `INSERT INTO conversations
+           (id, title, pinned, server_profile_id, model, system_prompt, params, enabled_tools, active_leaf_id, created_at, updated_at)
+         VALUES (?, ?, 0, ?, ?, ?, ?, NULL, NULL, ?, ?)`,
+      )
+      .run(
+        id,
+        input.title ?? '',
+        input.serverProfileId,
+        input.model,
+        input.systemPrompt ?? null,
+        JSON.stringify(input.params ?? {}),
+        now,
+        now,
+      );
+    return this.get(id)!;
+  }
+
+  update(
+    id: string,
+    patch: ConversationPatch,
+    opts: { touch?: boolean } = {},
+  ): Conversation | null {
+    const cur = this.get(id);
+    if (!cur) return null;
+    const next: Conversation = { ...cur, ...stripUndefined(patch) } as Conversation;
+    this.db
+      .prepare(
+        `UPDATE conversations SET title = ?, pinned = ?, server_profile_id = ?, model = ?, system_prompt = ?,
+           params = ?, enabled_tools = ?, active_leaf_id = ?, updated_at = ? WHERE id = ?`,
+      )
+      .run(
+        next.title,
+        next.pinned ? 1 : 0,
+        next.serverProfileId,
+        next.model,
+        next.systemPrompt,
+        JSON.stringify(next.params),
+        next.enabledTools ? JSON.stringify(next.enabledTools) : null,
+        next.activeLeafId,
+        opts.touch === false ? cur.updatedAt : Date.now(),
+        id,
+      );
+    return this.get(id);
+  }
+
+  delete(id: string): boolean {
+    const r = this.db.prepare('DELETE FROM conversations WHERE id = ?').run(id);
+    this.db.prepare('DELETE FROM messages_fts WHERE conversation_id = ?').run(id);
+    return r.changes > 0;
+  }
+}
+
+function stripUndefined<T extends object>(o: T): Partial<T> {
+  const out: Partial<T> = {};
+  for (const [k, v] of Object.entries(o))
+    if (v !== undefined) (out as Record<string, unknown>)[k] = v;
+  return out;
+}

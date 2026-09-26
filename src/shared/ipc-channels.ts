@@ -10,10 +10,28 @@ export const IPC_INVOKE_CHANNELS = [
   'settings:get',
   'settings:set',
   'settings:all',
+  'profiles:list',
+  'profiles:create',
+  'profiles:update',
+  'profiles:delete',
+  'profiles:models',
+  'profiles:test',
+  'models:capabilities',
+  'conversations:list',
+  'conversations:create',
+  'conversations:get',
+  'conversations:update',
+  'conversations:delete',
+  'messages:path',
+  'messages:search',
+  'chat:send',
+  'chat:regenerate',
+  'chat:abort',
+  'chat:running',
 ] as const;
 
 /** main -> renderer の一方向イベントチャネル */
-export const IPC_EVENT_CHANNELS = [] as const;
+export const IPC_EVENT_CHANNELS = ['chat:event'] as const;
 
 export type IpcInvokeChannel = (typeof IPC_INVOKE_CHANNELS)[number];
 export type IpcEventChannel = (typeof IPC_EVENT_CHANNELS)[number];

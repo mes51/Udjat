@@ -35,7 +35,6 @@ describe('openDatabase / runMigrations', () => {
       'mcp_servers',
       'tool_policies',
       'messages_fts',
-      'messages_fts_map',
     ]) {
       expect(names).toContain(t);
     }
@@ -44,16 +43,15 @@ describe('openDatabase / runMigrations', () => {
 
   it('supports trigram FTS on Japanese text', () => {
     const db = openDatabase({ path: ':memory:' });
-    db.prepare('INSERT INTO messages_fts (rowid, text) VALUES (?, ?)').run(
-      1,
+    db.prepare('INSERT INTO messages_fts (message_id, conversation_id, text) VALUES (?, ?, ?)').run(
+      'm1',
+      'c1',
       '動画のフレームを抽出する',
     );
     const hits = db
-      .prepare('SELECT rowid FROM messages_fts WHERE messages_fts MATCH ?')
-      .all('フレーム') as {
-      rowid: number;
-    }[];
-    expect(hits.map((h) => h.rowid)).toEqual([1]);
+      .prepare('SELECT message_id FROM messages_fts WHERE messages_fts MATCH ?')
+      .all('フレーム') as { message_id: string }[];
+    expect(hits.map((h) => h.message_id)).toEqual(['m1']);
     db.close();
   });
 

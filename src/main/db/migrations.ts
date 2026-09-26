@@ -59,6 +59,7 @@ export const migrations: readonly Migration[] = [
         model           TEXT,
         usage           TEXT,
         finish_reason   TEXT,
+        error           TEXT,
         created_at      INTEGER NOT NULL
       );
       CREATE INDEX messages_conv_parent ON messages(conversation_id, parent_id);
@@ -95,13 +96,14 @@ export const migrations: readonly Migration[] = [
         policy    TEXT NOT NULL
       );
 
-      -- 全文検索。content='' の外部コンテンツなし FTS。messages.id を rowid に紐づけるため
-      -- 別テーブルで rowid <-> message id を管理する。
-      CREATE TABLE messages_fts_map (
-        rowid      INTEGER PRIMARY KEY AUTOINCREMENT,
-        message_id TEXT NOT NULL UNIQUE REFERENCES messages(id) ON DELETE CASCADE
+      -- 全文検索。text を FTS 側にも持つ通常の FTS5 テーブル(削除・更新が単純になる)。
+      -- message_id / conversation_id は検索対象外の付随列。
+      CREATE VIRTUAL TABLE messages_fts USING fts5(
+        message_id UNINDEXED,
+        conversation_id UNINDEXED,
+        text,
+        tokenize='trigram'
       );
-      CREATE VIRTUAL TABLE messages_fts USING fts5(text, content='', tokenize='trigram');
     `,
   },
 ];

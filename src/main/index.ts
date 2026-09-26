@@ -1,13 +1,19 @@
 import { app, BrowserWindow, shell } from 'electron';
 import { join } from 'node:path';
+import { ChatService } from './chat/service';
 import { openDatabase, type Database } from './db/client';
+import { ConversationRepository } from './db/repositories/conversations';
+import { MessageRepository } from './db/repositories/messages';
+import { ServerProfileRepository } from './db/repositories/server-profiles';
 import { registerIpcHandlers } from './ipc/handlers';
+import { broadcastIpcEvent } from './ipc/register';
 import { initPaths } from './paths';
 
 // userData の差し替えは whenReady より前に行う必要がある。
 const paths = initPaths();
 
 let db: Database | null = null;
+let chat: ChatService | null = null;
 let mainWindow: BrowserWindow | null = null;
 
 function createWindow(): BrowserWindow {
@@ -56,7 +62,16 @@ if (!app.requestSingleInstanceLock()) {
 
   void app.whenReady().then(() => {
     db = openDatabase({ path: paths.database });
-    registerIpcHandlers({ db, paths });
+    const profiles = new ServerProfileRepository(db);
+    const conversations = new ConversationRepository(db);
+    const messages = new MessageRepository(db);
+    chat = new ChatService({
+      profiles,
+      conversations,
+      messages,
+      emit: (ev) => broadcastIpcEvent('chat:event', ev),
+    });
+    registerIpcHandlers({ db, paths, profiles, conversations, messages, chat });
     mainWindow = createWindow();
 
     app.on('activate', () => {
@@ -69,6 +84,7 @@ if (!app.requestSingleInstanceLock()) {
   });
 
   app.on('will-quit', () => {
+    chat?.abortAll();
     db?.close();
     db = null;
   });
