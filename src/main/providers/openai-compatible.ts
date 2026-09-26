@@ -124,7 +124,7 @@ export class OpenAICompatibleAdapter implements ProviderAdapter {
   async listModels(profile: ServerProfile, signal?: AbortSignal): Promise<ModelInfo[]> {
     const res = await requestJson<{
       data?: { id: string; meta?: { n_ctx_train?: number; n_params?: number } }[];
-    }>(profile, '/v1/models', { signal });
+    }>(profile, '/v1/models', { signal, timeoutMs: 5_000 });
     const models: ModelInfo[] = (res.data ?? []).map((m) => {
       const info: ModelInfo = { id: m.id, name: m.id };
       if (m.meta?.n_ctx_train) info.contextLength = m.meta.n_ctx_train;
@@ -137,7 +137,7 @@ export class OpenAICompatibleAdapter implements ProviderAdapter {
         const props = await requestJson<{
           default_generation_settings?: { n_ctx?: number };
           modalities?: { vision?: boolean; audio?: boolean };
-        }>(profile, '/props', { signal });
+        }>(profile, '/props', { signal, timeoutMs: 5_000 });
         for (const m of models) {
           if (props.default_generation_settings?.n_ctx)
             m.contextLength = props.default_generation_settings.n_ctx;

@@ -1,5 +1,5 @@
 import { useQueryClient } from '@tanstack/react-query';
-import { SlidersHorizontal } from 'lucide-react';
+import { Loader2, RefreshCw, SlidersHorizontal } from 'lucide-react';
 import { useState } from 'react';
 import { Button } from '@renderer/components/ui/button';
 import { Select } from '@renderer/components/ui/input';
@@ -110,8 +110,20 @@ export function ChatPane({ conversationId }: { conversationId: string }) {
               </option>
             ))}
           </Select>
-          {models.isError && (
-            <span className="truncate text-xs text-red-400">{String(models.error)}</span>
+          {models.isFetching && (
+            <span className="text-fg-muted flex items-center gap-1 text-xs">
+              <Loader2 size={14} className="animate-spin" /> モデル取得中
+            </span>
+          )}
+          {models.isError && !models.isFetching && (
+            <span className="flex min-w-0 items-center gap-1 text-xs text-red-400">
+              <span className="truncate" title={String(models.error)}>
+                モデル一覧を取得できません
+              </span>
+              <Button variant="ghost" size="sm" onClick={() => void models.refetch()}>
+                <RefreshCw size={12} /> 再試行
+              </Button>
+            </span>
           )}
           <div className="flex-1" />
           <Button
@@ -124,7 +136,11 @@ export function ChatPane({ conversationId }: { conversationId: string }) {
             <SlidersHorizontal size={16} />
           </Button>
         </header>
-        <MessageList messages={path.data ?? []} onRegenerate={(id) => void regenerate(id)} />
+        <MessageList
+          conversationId={conversationId}
+          messages={path.data ?? []}
+          onRegenerate={(id) => void regenerate(id)}
+        />
         {sendError && <div className="px-4 py-1 text-xs text-red-400">{sendError}</div>}
         <Composer
           disabled={!canSend}

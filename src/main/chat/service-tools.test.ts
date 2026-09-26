@@ -155,6 +155,39 @@ describe('ChatService tool loop', () => {
     expect(second.messages[2]!.tool_call_id).toBe('call_1');
   });
 
+  it('regenerates from the last user message, discarding earlier tool results', async () => {
+    server = await toolThenAnswerServer();
+    const c = await setup();
+    const r1 = await service.send({ conversationId: c.id, text: '東京の天気は?' });
+    await service.waitFor(r1.runId);
+    const before = messages.pathToRoot(conversations.get(c.id)!.activeLeafId!);
+    expect(before.map((m) => m.role)).toEqual(['user', 'assistant', 'tool', 'assistant']);
+
+    // 最後の assistant セグメントから再生成しても、直前のユーザー発言の直下に新しい分岐ができる
+    const r2 = await service.regenerate(before[3]!.id);
+    expect(r2.userMessageId).toBeNull();
+    const created = messages.get(r2.assistantMessageId)!;
+    expect(created.parentId).toBe(before[0]!.id);
+    await service.waitFor(r2.runId);
+
+    const after = messages.pathToRoot(conversations.get(c.id)!.activeLeafId!);
+    expect(after.map((m) => m.role)).toEqual(['user', 'assistant', 'tool', 'assistant']);
+    expect(after[1]!.id).not.toBe(before[1]!.id);
+    // 元の分岐は兄弟として残る
+    expect(messages.children(c.id, before[0]!.id).map((m) => m.id)).toEqual([
+      before[1]!.id,
+      after[1]!.id,
+    ]);
+    // 新しい分岐ではツールが改めて呼ばれている
+    expect(executed).toHaveLength(2);
+    // 再生成に送った履歴に古いツール結果は含まれない
+    const regenRequest = server.requests.filter((r) => r.path === '/v1/chat/completions')[2]!
+      .body as {
+      messages: { role: string }[];
+    };
+    expect(regenRequest.messages.map((m) => m.role)).toEqual(['user']);
+  });
+
   it('waits for approval when the policy is ask, and honours deny', async () => {
     server = await toolThenAnswerServer();
     registry.setPolicy('get_weather', 'ask');

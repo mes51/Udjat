@@ -4,13 +4,16 @@ import { useStreamStore } from '@renderer/state/stream-store';
 import { MessageItem } from './MessageItem';
 
 export function MessageList({
+  conversationId,
   messages,
   onRegenerate,
 }: {
+  conversationId: string;
   messages: Message[];
   onRegenerate: (messageId: string) => void;
 }) {
   const streams = useStreamStore((s) => s.streams);
+  const running = useStreamStore((s) => !!s.running[conversationId]);
   const bottomRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const stickToBottom = useRef(true);
@@ -48,7 +51,8 @@ export function MessageList({
             message={m}
             stream={streams[m.id]}
             isLastAssistant={m.id === lastAssistantId}
-            onRegenerate={onRegenerate}
+            // run 全体(ツールループ含む)が終わるまで再生成は出さない
+            {...(running ? {} : { onRegenerate })}
           />
         ))}
         <div ref={bottomRef} />

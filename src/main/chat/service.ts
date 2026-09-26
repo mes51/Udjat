@@ -117,10 +117,16 @@ export class ChatService {
     }
     const conv = conversations.get(target.conversationId);
     if (!conv) throw new Error('会話が見つかりません');
+    if (this.isRunning(conv.id)) throw new Error('この会話は応答生成中です');
     const profile = this.requireProfile(conv.serverProfileId);
+    // ツール呼び出しを含む応答は複数セグメントに分かれているので、直前のユーザー発言まで遡って
+    // そこから作り直す(途中のツール結果は新しい分岐には含めない)
+    const ancestors = messages.pathToRoot(target.id);
+    const lastUser = [...ancestors].reverse().find((m) => m.role === 'user');
+    const parentId = lastUser ? lastUser.id : target.parentId;
     const assistant = messages.create({
       conversationId: conv.id,
-      parentId: target.parentId,
+      parentId,
       role: 'assistant',
       parts: [],
       model: resolveModel(conv, profile),

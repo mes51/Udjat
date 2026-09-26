@@ -92,7 +92,7 @@ export class OllamaAdapter implements ProviderAdapter {
   async listModels(profile: ServerProfile, signal?: AbortSignal): Promise<ModelInfo[]> {
     const res = await requestJson<{
       models?: { name: string; model?: string; size?: number; details?: Record<string, unknown> }[];
-    }>(profile, '/api/tags', { signal });
+    }>(profile, '/api/tags', { signal, timeoutMs: 5_000 });
     return (res.models ?? []).map((m) => {
       const info: ModelInfo = { id: m.model ?? m.name, name: m.name };
       if (m.details)
