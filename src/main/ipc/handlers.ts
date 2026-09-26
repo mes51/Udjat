@@ -2,6 +2,8 @@ import { app } from 'electron';
 import type { ServerProfile, ServerProfileInput } from '@shared/schemas';
 import type { ChatService } from '@main/chat/service';
 import type { ToolRegistry } from '@main/tools/registry';
+import type { MediaStore } from '@main/media/store';
+import { mimeFromName } from '@main/media/store';
 import type { Database } from '@main/db/client';
 import { sqliteVersion } from '@main/db/client';
 import type { ConversationRepository } from '@main/db/repositories/conversations';
@@ -20,6 +22,7 @@ export interface AppContext {
   messages: MessageRepository;
   chat: ChatService;
   tools: ToolRegistry;
+  media: MediaStore;
 }
 
 export function registerIpcHandlers(ctx: AppContext): void {
@@ -108,13 +111,29 @@ export function registerIpcHandlers(ctx: AppContext): void {
   handleIpc('messages:search', ({ query, limit }) => ctx.messages.search(query, limit));
 
   // --- チャット ---
-  handleIpc('chat:send', ({ conversationId, text }) => {
+  handleIpc('chat:send', ({ conversationId, text, attachments }) => {
     if (ctx.chat.isRunning(conversationId)) throw new Error('この会話は応答生成中です');
-    return ctx.chat.send({ conversationId, text });
+    return ctx.chat.send({ conversationId, text, ...(attachments ? { attachments } : {}) });
   });
   handleIpc('chat:regenerate', ({ messageId }) => ctx.chat.regenerate(messageId));
   handleIpc('chat:abort', ({ runId }) => ctx.chat.abort(runId));
   handleIpc('chat:running', ({ conversationId }) => ctx.chat.isRunning(conversationId));
+
+  // --- 添付 ---
+  handleIpc('attachments:addBytes', ({ name, mime, base64 }) =>
+    ctx.media.addBytes(
+      Buffer.from(base64, 'base64'),
+      name || `pasted.${mime.split('/')[1] ?? 'bin'}`,
+      mime,
+    ),
+  );
+  handleIpc('attachments:addPath', ({ path, name }) =>
+    ctx.media.addFile(path, {
+      ...(name ? { originalName: name } : {}),
+      mime: mimeFromName(name ?? path),
+    }),
+  );
+  handleIpc('attachments:get', ({ id }) => ctx.media.get(id));
 
   // --- ツール ---
   handleIpc('tools:list', () => ctx.tools.list());

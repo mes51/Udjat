@@ -1,7 +1,9 @@
 import { Collapsible } from 'radix-ui';
-import { AlertCircle, Bot, Brain, ChevronRight, Info, RefreshCw, User } from 'lucide-react';
+import { AlertCircle, Bot, Brain, ChevronRight, Images, Info, RefreshCw, User } from 'lucide-react';
+import { mediaUrl } from '@renderer/lib/attachments';
+import { PartMedia } from './AttachmentChips';
 import { useState } from 'react';
-import type { Message, Usage } from '@shared/schemas';
+import type { Message, Part, Usage } from '@shared/schemas';
 import { Button } from '@renderer/components/ui/button';
 import { cn, formatDuration } from '@renderer/lib/utils';
 import { useStreamStore, type StreamState } from '@renderer/state/stream-store';
@@ -65,6 +67,66 @@ function ReasoningBlock({ text, streaming }: { text: string; streaming: boolean 
   );
 }
 
+/** ユーザーメッセージの添付(画像・動画・音声・ファイル) */
+function MediaParts({ message }: { message: Message }) {
+  const media = message.parts.filter(
+    (p): p is Exclude<Part, { type: 'text' } | { type: 'reasoning' }> =>
+      p.type !== 'text' && p.type !== 'reasoning',
+  );
+  if (media.length === 0) return null;
+  return (
+    <div className="mt-2 flex flex-wrap gap-2">
+      {media.map((p, i) => (
+        <PartMedia
+          key={`${p.attachmentId}-${i}`}
+          type={p.type}
+          attachmentId={p.attachmentId}
+          name={p.name}
+        />
+      ))}
+    </div>
+  );
+}
+
+/** ツールが返した画像・動画(モデルに送られたもの)のサムネイル列 */
+function ToolMediaStrip({ message }: { message: Message }) {
+  const media = message.parts.filter((p) => p.type === 'image' || p.type === 'video');
+  return (
+    <div className="px-4 py-1 pl-14">
+      <div className="text-fg-muted mb-1 flex items-center gap-1 text-[11px]">
+        <Images size={12} /> モデルに渡した画像 ({media.length})
+      </div>
+      <div className="flex flex-wrap gap-1.5">
+        {media.map((p, i) =>
+          p.type === 'image' ? (
+            <a
+              key={`${p.attachmentId}-${i}`}
+              href={mediaUrl(p.attachmentId)}
+              target="_blank"
+              rel="noreferrer"
+              title={p.name}
+            >
+              <img
+                src={mediaUrl(p.attachmentId)}
+                alt={p.name ?? ''}
+                className="border-border h-24 rounded border object-cover"
+                loading="lazy"
+              />
+            </a>
+          ) : p.type === 'video' ? (
+            <PartMedia
+              key={`${p.attachmentId}-${i}`}
+              type="video"
+              attachmentId={p.attachmentId}
+              name={p.name}
+            />
+          ) : null,
+        )}
+      </div>
+    </div>
+  );
+}
+
 function UsageLine({ usage, model }: { usage: Usage | null; model: string | null }) {
   if (!usage && !model) return null;
   const parts: string[] = [];
@@ -82,6 +144,7 @@ function UsageLine({ usage, model }: { usage: Usage | null; model: string | null
 export function MessageItem({ message, stream, isLastAssistant, onRegenerate }: MessageItemProps) {
   const approvals = useStreamStore((s) => s.approvals);
   if (message.role === 'tool') return <ToolResultCard message={message} />;
+  if (message.kind === 'tool-media') return <ToolMediaStrip message={message} />;
   if (message.kind === 'note') {
     return (
       <div className="text-fg-muted flex items-center gap-1.5 px-4 py-1 pl-14 text-xs">
@@ -115,7 +178,10 @@ export function MessageItem({ message, stream, isLastAssistant, onRegenerate }: 
       <div className="min-w-0 flex-1">
         {reasoning && <ReasoningBlock text={reasoning} streaming={streaming && !text} />}
         {isUser ? (
-          <div className="text-[15px] leading-relaxed whitespace-pre-wrap">{text}</div>
+          <>
+            {text && <div className="text-[15px] leading-relaxed whitespace-pre-wrap">{text}</div>}
+            <MediaParts message={message} />
+          </>
         ) : text ? (
           <Markdown text={text} />
         ) : streaming ? (

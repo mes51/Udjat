@@ -1,8 +1,15 @@
-import { app, BrowserWindow, shell } from 'electron';
+import { app, BrowserWindow, net, protocol, shell } from 'electron';
 import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
+import { MediaResolver } from './chat/media-resolver';
 import { ChatService } from './chat/service';
 import { openDatabase, type Database } from './db/client';
+import { AttachmentRepository } from './db/repositories/attachments';
 import { ConversationRepository } from './db/repositories/conversations';
+import { FfmpegService } from './media/ffmpeg';
+import { MediaStore } from './media/store';
+import { VideoOps } from './media/video-ops';
+import { createVideoTools } from './tools/builtin/video';
 import { MessageRepository } from './db/repositories/messages';
 import { ServerProfileRepository } from './db/repositories/server-profiles';
 import { registerIpcHandlers } from './ipc/handlers';
@@ -14,6 +21,26 @@ import { ToolRegistry } from './tools/registry';
 
 // userData の差し替えは whenReady より前に行う必要がある。
 const paths = initPaths();
+
+// 添付ファイルを renderer に見せるためのスキーム: udjat-media://attachment/<id>
+protocol.registerSchemesAsPrivileged([
+  {
+    scheme: 'udjat-media',
+    privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true },
+  },
+]);
+
+function registerMediaProtocol(media: MediaStore): void {
+  protocol.handle('udjat-media', (request) => {
+    const url = new URL(request.url);
+    const id = url.pathname.replace(/^\/+/, '');
+    const a = url.hostname === 'attachment' && id ? media.get(id) : null;
+    if (!a) return new Response('not found', { status: 404 });
+    return net.fetch(pathToFileURL(media.pathOf(a)).href, {
+      headers: { 'Content-Type': a.mime },
+    });
+  });
+}
 
 let db: Database | null = null;
 let chat: ChatService | null = null;
@@ -69,8 +96,21 @@ if (!app.requestSingleInstanceLock()) {
     const conversations = new ConversationRepository(db);
     const messages = new MessageRepository(db);
     const settings = new SettingsRepository(db);
+    const attachments = new AttachmentRepository(db);
+    const ffmpeg = new FfmpegService({
+      ffmpeg: (settings.get('ffmpeg.path') as string | null) ?? null,
+      ffprobe: (settings.get('ffprobe.path') as string | null) ?? null,
+    });
+    const media = new MediaStore(attachments, ffmpeg, {
+      mediaDir: paths.media,
+      cacheDir: paths.cache,
+    });
+    const ops = new VideoOps(media, ffmpeg);
+    registerMediaProtocol(media);
+
     const tools = new ToolRegistry(db);
     registerBuiltinTools(tools);
+    for (const t of createVideoTools({ store: media, ops })) tools.register(t);
     chat = new ChatService({
       profiles,
       conversations,
@@ -78,8 +118,9 @@ if (!app.requestSingleInstanceLock()) {
       tools,
       emit: (ev) => broadcastIpcEvent('chat:event', ev),
       getSetting: (key) => settings.get(key),
+      media: { store: media, ops, attachments, resolver: new MediaResolver(media, ops) },
     });
-    registerIpcHandlers({ db, paths, profiles, conversations, messages, chat, tools });
+    registerIpcHandlers({ db, paths, profiles, conversations, messages, chat, tools, media });
     mainWindow = createWindow();
 
     app.on('activate', () => {

@@ -87,6 +87,45 @@ export const ModelInfoSchema = z.object({
 });
 export type ModelInfo = z.infer<typeof ModelInfoSchema>;
 
+export const AttachmentMetaSchema = z.object({
+  kind: z.enum(['image', 'video', 'audio', 'file']),
+  width: z.number().optional(),
+  height: z.number().optional(),
+  durationMs: z.number().optional(),
+  fps: z.number().optional(),
+  hasAudio: z.boolean().optional(),
+  codec: z.string().optional(),
+  probeError: z.string().optional(),
+  /** 派生物(フレーム・コンタクトシート等)の元になった添付 id */
+  derivedFrom: z.string().optional(),
+  /** 派生物の説明(例: frame@12.5s, contact-sheet 0-95s) */
+  derivedLabel: z.string().optional(),
+  /** 派生フレームの時刻(ミリ秒) */
+  timestampMs: z.number().optional(),
+});
+export type AttachmentMeta = z.infer<typeof AttachmentMetaSchema>;
+
+export const AttachmentSchema = z.object({
+  id: z.string(),
+  sha256: z.string(),
+  mime: z.string(),
+  ext: z.string(),
+  originalName: z.string(),
+  size: z.number(),
+  meta: AttachmentMetaSchema,
+  refCount: z.number(),
+  createdAt: z.number(),
+});
+export type Attachment = z.infer<typeof AttachmentSchema>;
+
+/** 送信時の添付指定 */
+export const AttachmentRefSchema = z.object({
+  id: z.string(),
+  /** 動画の送り方。tools = ツールで参照(既定)、native = 動画をそのまま送る */
+  sendMode: z.enum(['tools', 'native']).optional(),
+});
+export type AttachmentRef = z.infer<typeof AttachmentRefSchema>;
+
 export const RoleSchema = z.enum(['system', 'user', 'assistant', 'tool']);
 export type Role = z.infer<typeof RoleSchema>;
 
@@ -95,7 +134,12 @@ export const PartSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('reasoning'), text: z.string() }),
   z.object({ type: z.literal('image'), attachmentId: z.string(), name: z.string().optional() }),
   z.object({ type: z.literal('audio'), attachmentId: z.string(), name: z.string().optional() }),
-  z.object({ type: z.literal('video'), attachmentId: z.string(), name: z.string().optional() }),
+  z.object({
+    type: z.literal('video'),
+    attachmentId: z.string(),
+    name: z.string().optional(),
+    sendMode: z.enum(['tools', 'native']).optional(),
+  }),
   z.object({ type: z.literal('file'), attachmentId: z.string(), name: z.string().optional() }),
 ]);
 export type Part = z.infer<typeof PartSchema>;

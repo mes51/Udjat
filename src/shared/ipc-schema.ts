@@ -1,6 +1,8 @@
 import { z } from 'zod';
 import type { IpcEventChannel, IpcInvokeChannel } from './ipc-channels';
 import {
+  AttachmentRefSchema,
+  AttachmentSchema,
   CapabilitiesSchema,
   ChatRunEventSchema,
   ConversationPatchSchema,
@@ -114,7 +116,11 @@ export const ipcInvokeSchema = {
   },
 
   'chat:send': {
-    input: z.object({ conversationId: z.string().min(1), text: z.string().min(1) }),
+    input: z.object({
+      conversationId: z.string().min(1),
+      text: z.string(),
+      attachments: z.array(AttachmentRefSchema).optional(),
+    }),
     output: RunHandleSchema,
   },
   'chat:regenerate': { input: z.object({ messageId: z.string().min(1) }), output: RunHandleSchema },
@@ -137,6 +143,22 @@ export const ipcInvokeSchema = {
     }),
     output: z.boolean(),
   },
+
+  /** 貼り付け画像や renderer で縮小した画像(base64) */
+  'attachments:addBytes': {
+    input: z.object({
+      name: z.string(),
+      mime: z.string().min(1),
+      base64: z.string().min(1),
+    }),
+    output: AttachmentSchema,
+  },
+  /** ドロップ/選択したファイル(パスは preload の pathForFile で得る) */
+  'attachments:addPath': {
+    input: z.object({ path: z.string().min(1), name: z.string().optional() }),
+    output: AttachmentSchema,
+  },
+  'attachments:get': { input: Id, output: AttachmentSchema.nullable() },
 } as const satisfies Record<IpcInvokeChannel, { input: z.ZodType; output: z.ZodType }>;
 
 export const ipcEventSchema = {

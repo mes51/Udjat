@@ -48,8 +48,8 @@ function msg(partial: Partial<Message> & Pick<Message, 'id' | 'role' | 'parts'>)
 }
 
 describe('buildChatRequest', () => {
-  it('merges params, prepends the system prompt and drops reasoning by default', () => {
-    const req = buildChatRequest({
+  it('merges params, prepends the system prompt and drops reasoning by default', async () => {
+    const req = await buildChatRequest({
       conversation,
       profile,
       capabilities: guessFromModelName('ollama', 'qwen3:8b'),
@@ -84,8 +84,8 @@ describe('buildChatRequest', () => {
     ]);
   });
 
-  it('includes reasoning when asked and fails without a model', () => {
-    const req = buildChatRequest({
+  it('includes reasoning when asked and fails without a model', async () => {
+    const req = await buildChatRequest({
       conversation,
       profile,
       sendReasoning: true,
@@ -102,13 +102,13 @@ describe('buildChatRequest', () => {
       ],
     });
     expect(req.messages[1]).toEqual({ role: 'assistant', text: 'hello', reasoning: 'think' });
-    expect(() =>
+    await expect(
       buildChatRequest({
         conversation,
         profile: { ...profile, defaultModel: null },
         capabilities: guessFromModelName('ollama', 'x'),
         path: [],
       }),
-    ).toThrow(/モデル/);
+    ).rejects.toThrow(/モデル/);
   });
 });

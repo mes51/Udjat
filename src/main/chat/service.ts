@@ -1,4 +1,6 @@
 import type {
+  Attachment,
+  AttachmentRef,
   Capabilities,
   ChatEvent,
   ChatRunEvent,
@@ -12,7 +14,11 @@ import type {
   ToolMeta,
   Usage,
 } from '@shared/schemas';
+import type { AttachmentRepository } from '@main/db/repositories/attachments';
 import type { ConversationRepository } from '@main/db/repositories/conversations';
+import type { MediaStore } from '@main/media/store';
+import type { VideoOps } from '@main/media/video-ops';
+import type { MediaResolver } from './media-resolver';
 import type { MessageRepository } from '@main/db/repositories/messages';
 import type { ServerProfileRepository } from '@main/db/repositories/server-profiles';
 import { getAdapter, resolveCapabilities } from '@main/providers';
@@ -29,15 +35,27 @@ export interface ChatServiceDeps {
   tools: ToolRegistry;
   emit: (event: ChatRunEvent) => void;
   getSetting?: (key: string) => unknown;
+  /** 添付まわり。無ければ添付は扱えない(テスト用) */
+  media?: MediaServices;
   /** DB への途中保存の間隔(ミリ秒) */
   flushIntervalMs?: number;
   /** ツール呼び出しループの最大反復回数 */
   maxToolIterations?: number;
+  /** 動画添付時にコンタクトシートを自動添付するか(既定 true) */
+  autoContactSheet?: boolean;
+}
+
+export interface MediaServices {
+  store: MediaStore;
+  ops: VideoOps;
+  attachments: AttachmentRepository;
+  resolver: MediaResolver;
 }
 
 export interface SendInput {
   conversationId: string;
   text: string;
+  attachments?: AttachmentRef[];
   /** 省略時は会話の active_leaf の下に追加する */
   parentId?: string | null;
 }
@@ -80,13 +98,22 @@ export class ChatService {
     if (!conv) throw new Error('会話が見つかりません');
     const profile = this.requireProfile(conv.serverProfileId);
 
+    const refs = input.attachments ?? [];
+    if (input.text.trim() === '' && refs.length === 0) throw new Error('メッセージが空です');
+    const { parts, linked } = await this.attachmentParts(refs);
+    const userParts: Part[] = [
+      ...(input.text ? [{ type: 'text' as const, text: input.text }] : []),
+      ...parts,
+    ];
+
     const parentId = input.parentId === undefined ? conv.activeLeafId : input.parentId;
     const user = messages.create({
       conversationId: conv.id,
       parentId,
       role: 'user',
-      parts: [{ type: 'text', text: input.text }],
+      parts: userParts,
     });
+    for (const a of linked) this.deps.media?.attachments.link(user.id, a.id);
     const assistant = messages.create({
       conversationId: conv.id,
       parentId: user.id,
@@ -96,7 +123,9 @@ export class ChatService {
     });
     conversations.update(conv.id, {
       activeLeafId: assistant.id,
-      ...(conv.title.trim() === '' ? { title: makeTitle(input.text) } : {}),
+      ...(conv.title.trim() === ''
+        ? { title: makeTitle(input.text || linked[0]?.originalName || '') }
+        : {}),
     });
 
     const runId = this.start(conv.id, profile, assistant);
@@ -106,6 +135,59 @@ export class ChatService {
       userMessageId: user.id,
       assistantMessageId: assistant.id,
     };
+  }
+
+  /**
+   * 添付参照をメッセージのパートに変換する。動画は既定でコンタクトシートを 1 枚添える
+   * (docs/plan/03-video-and-attachments.md)。
+   */
+  private async attachmentParts(
+    refs: AttachmentRef[],
+  ): Promise<{ parts: Part[]; linked: Attachment[] }> {
+    const parts: Part[] = [];
+    const linked: Attachment[] = [];
+    if (refs.length === 0) return { parts, linked };
+    const media = this.deps.media;
+    if (!media) throw new Error('添付はこの構成では扱えません');
+    for (const ref of refs) {
+      const a = media.store.get(ref.id);
+      if (!a) throw new Error(`添付が見つかりません: ${ref.id}`);
+      linked.push(a);
+      const kind = a.meta.kind;
+      if (kind === 'video') {
+        parts.push({
+          type: 'video',
+          attachmentId: a.id,
+          name: a.originalName,
+          sendMode: ref.sendMode ?? 'tools',
+        });
+        if (
+          (this.deps.autoContactSheet ?? true) &&
+          (ref.sendMode ?? 'tools') === 'tools' &&
+          !a.meta.probeError
+        ) {
+          try {
+            const { sheet } = await media.ops.contactSheet(a);
+            parts.push({
+              type: 'image',
+              attachmentId: sheet.id,
+              name: `${a.originalName} (contact sheet)`,
+            });
+            linked.push(sheet);
+          } catch (e) {
+            parts.push({
+              type: 'text',
+              text: `[コンタクトシートの生成に失敗: ${(e as Error).message.slice(0, 200)}]`,
+            });
+          }
+        }
+      } else if (kind === 'image')
+        parts.push({ type: 'image', attachmentId: a.id, name: a.originalName });
+      else if (kind === 'audio')
+        parts.push({ type: 'audio', attachmentId: a.id, name: a.originalName });
+      else parts.push({ type: 'file', attachmentId: a.id, name: a.originalName });
+    }
+    return { parts, linked };
   }
 
   /** assistant メッセージを同じ親の下に作り直す(分岐) */
@@ -265,7 +347,7 @@ export class ChatService {
         // --- ツール実行 ---
         let parentId = assistant.id;
         for (const call of outcome.toolCalls) {
-          const { toolMsg } = await this.executeToolCall(call, {
+          const { lastId } = await this.executeToolCall(call, {
             runId,
             conversationId,
             parentId,
@@ -273,7 +355,7 @@ export class ChatService {
             counters,
             emit,
           });
-          parentId = toolMsg.id;
+          parentId = lastId;
         }
 
         // --- 次の assistant セグメント ---
@@ -340,12 +422,14 @@ export class ChatService {
     };
 
     const path = messages.pathToRoot(assistant.id).slice(0, -1); // 自分自身(空の assistant)は除く
-    const req = buildChatRequest({
+    const req = await buildChatRequest({
       conversation: conv,
       profile,
       path,
       capabilities,
       tools: toolDefs,
+      signal,
+      ...(this.deps.media ? { resolver: this.deps.media.resolver } : {}),
     });
 
     try {
@@ -387,7 +471,7 @@ export class ChatService {
       counters: Map<string, number>;
       emit: (event: ChatEvent) => void;
     },
-  ): Promise<{ toolMsg: Message; result: ToolResult }> {
+  ): Promise<{ lastId: string; result: ToolResult }> {
     const { messages, tools } = this.deps;
     const startedAt = Date.now();
 
@@ -452,8 +536,30 @@ export class ChatService {
       toolCallId: call.id,
       toolMeta: meta,
     });
-    // result.media の配送(follow-up-user-message 戦略)は M3 で実装する
-    return { toolMsg, result };
+    // 画像・動画を含む結果は、tool メッセージの直後に user メッセージ(kind: tool-media)として配送する
+    // (role: tool に画像を入れられないサーバーが多いため。docs/plan/03 参照)
+    const mediaList = result.media ?? [];
+    if (mediaList.length === 0 || !this.deps.media) return { lastId: toolMsg.id, result };
+    const parts: Part[] = [{ type: 'text', text: `[tool result media: ${call.name}]` }];
+    for (const m of mediaList) {
+      if (m.kind === 'video')
+        parts.push({
+          type: 'video',
+          attachmentId: m.attachmentId,
+          name: m.label,
+          sendMode: 'native',
+        });
+      else parts.push({ type: 'image', attachmentId: m.attachmentId, name: m.label });
+    }
+    const mediaMsg = messages.create({
+      conversationId: ctx.conversationId,
+      parentId: toolMsg.id,
+      role: 'user',
+      kind: 'tool-media',
+      parts,
+    });
+    for (const m of mediaList) this.deps.media.attachments.link(mediaMsg.id, m.attachmentId);
+    return { lastId: mediaMsg.id, result };
   }
 
   private awaitApproval(

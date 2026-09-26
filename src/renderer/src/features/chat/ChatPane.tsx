@@ -1,11 +1,14 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { Loader2, RefreshCw, SlidersHorizontal } from 'lucide-react';
-import { useState } from 'react';
+import { useCallback, useRef, useState, type DragEvent } from 'react';
+import type { AttachmentRef } from '@shared/schemas';
 import { Button } from '@renderer/components/ui/button';
 import { Select } from '@renderer/components/ui/input';
+import { addFile } from '@renderer/lib/attachments';
 import { invoke } from '@renderer/lib/ipc';
 import {
   keys,
+  useCapabilities,
   useConversation,
   useConversationMutations,
   useMessagePath,
@@ -15,6 +18,7 @@ import {
 import { cn } from '@renderer/lib/utils';
 import { useStreamStore } from '@renderer/state/stream-store';
 import { useUiStore } from '@renderer/state/ui-store';
+import type { PendingAttachment } from './AttachmentChips';
 import { Composer } from './Composer';
 import { ConversationSettings } from './ConversationSettings';
 import { MessageList } from './MessageList';
@@ -31,14 +35,54 @@ export function ChatPane({ conversationId }: { conversationId: string }) {
   const settingsOpen = useUiStore((s) => s.conversationSettingsOpen);
   const setSettingsOpen = useUiStore((s) => s.setConversationSettingsOpen);
   const [sendError, setSendError] = useState<string | null>(null);
+  const [pending, setPendingState] = useState<PendingAttachment[]>([]);
+  const [dragging, setDragging] = useState(false);
+  const dragDepth = useRef(0);
+  const caps = useCapabilities(conv.data?.serverProfileId ?? null, conv.data?.model ?? null);
 
   const c = conv.data;
   const canSend = !!c?.serverProfileId && !!c.model;
+  const setPending = useCallback(
+    (updater: (prev: PendingAttachment[]) => PendingAttachment[]) => setPendingState(updater),
+    [],
+  );
 
-  const send = async (text: string) => {
+  // ドラッグ&ドロップ(チャット画面全体で受ける)
+  const onDragEnter = (e: DragEvent<HTMLDivElement>) => {
+    if (!e.dataTransfer.types.includes('Files')) return;
+    dragDepth.current++;
+    setDragging(true);
+  };
+  const onDragLeave = () => {
+    dragDepth.current = Math.max(0, dragDepth.current - 1);
+    if (dragDepth.current === 0) setDragging(false);
+  };
+  const onDrop = (e: DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    dragDepth.current = 0;
+    setDragging(false);
+    const files = [...e.dataTransfer.files];
+    if (files.length === 0 || !canSend) return;
+    void (async () => {
+      for (const f of files) {
+        try {
+          const a = await addFile(f);
+          setPendingState((prev) =>
+            prev.some((p) => p.attachment.id === a.id)
+              ? prev
+              : [...prev, { attachment: a, sendMode: 'tools' }],
+          );
+        } catch (err) {
+          setSendError(`${f.name}: ${(err as Error).message}`);
+        }
+      }
+    })();
+  };
+
+  const send = async (text: string, attachments: AttachmentRef[]) => {
     setSendError(null);
     try {
-      const handle = await invoke('chat:send', { conversationId, text });
+      const handle = await invoke('chat:send', { conversationId, text, attachments });
       begin(handle);
       await qc.invalidateQueries({ queryKey: keys.path(conversationId) });
       await qc.invalidateQueries({ queryKey: keys.conversations });
@@ -71,7 +115,13 @@ export function ChatPane({ conversationId }: { conversationId: string }) {
 
   return (
     <div className="flex min-w-0 flex-1">
-      <div className="flex min-w-0 flex-1 flex-col">
+      <div
+        className="relative flex min-w-0 flex-1 flex-col"
+        onDragEnter={onDragEnter}
+        onDragOver={(e) => e.preventDefault()}
+        onDragLeave={onDragLeave}
+        onDrop={onDrop}
+      >
         <header className="border-border flex items-center gap-2 border-b px-4 py-2">
           <Select
             className="w-44"
@@ -145,9 +195,17 @@ export function ChatPane({ conversationId }: { conversationId: string }) {
         <Composer
           disabled={!canSend}
           running={!!runningRunId}
-          onSend={(t) => void send(t)}
+          nativeVideo={caps.data?.video === 'native'}
+          pending={pending}
+          setPending={setPending}
+          onSend={(t, refs) => void send(t, refs)}
           onAbort={abort}
         />
+        {dragging && (
+          <div className="bg-accent/10 border-accent pointer-events-none absolute inset-0 z-10 flex items-center justify-center border-2 border-dashed text-sm">
+            ファイルをドロップして添付
+          </div>
+        )}
       </div>
       {settingsOpen && <ConversationSettings key={c.id} conversation={c} />}
     </div>

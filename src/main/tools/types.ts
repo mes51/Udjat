@@ -12,11 +12,12 @@ export interface ToolContext {
   getSetting: (key: string) => unknown;
 }
 
+/** ツールが返す画像・動画。添付として登録済みのものを id で指す */
 export interface ToolMedia {
+  attachmentId: string;
   mime: string;
-  /** MediaStore 上のパス(M3 で使用) */
-  path: string;
-  label?: string;
+  kind: 'image' | 'video';
+  label: string;
 }
 
 export interface ToolResult {

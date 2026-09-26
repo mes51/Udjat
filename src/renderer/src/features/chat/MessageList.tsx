@@ -32,7 +32,7 @@ export function MessageList({
     if (stickToBottom.current) bottomRef.current?.scrollIntoView({ block: 'end' });
   }, [messages, streamingText]);
 
-  const visible = messages.filter((m) => m.kind !== 'tool-media');
+  const visible = messages;
   const lastAssistantId = [...visible]
     .reverse()
     .find((m) => m.role === 'assistant' && m.kind === 'normal')?.id;

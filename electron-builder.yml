@@ -6,9 +6,19 @@ directories:
 files:
   - out/**
   - package.json
-# ネイティブ依存は使わない(DB は node:sqlite)。ffmpeg を同梱する段階で asarUnpack に追加する。
-asarUnpack: []
+  # ffprobe-static は全 OS 分のバイナリを含むので、対象プラットフォーム以外を除外する
+  - '!node_modules/ffprobe-static/bin/darwin/**'
+  - '!node_modules/ffprobe-static/bin/linux/**'
+  - '!node_modules/ffprobe-static/bin/win32/ia32/**'
+# ネイティブ依存は使わない(DB は node:sqlite)。ffmpeg / ffprobe の実行ファイルは asar の外に出す。
+asarUnpack:
+  - node_modules/ffmpeg-static/**
+  - node_modules/ffprobe-static/**
 npmRebuild: false
+# Chromium のロケールは日本語と英語のみ同梱する(サイズ削減)
+electronLanguages:
+  - ja
+  - en-US
 win:
   target:
     - target: zip

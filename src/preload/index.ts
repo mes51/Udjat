@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron';
+import { contextBridge, ipcRenderer, webUtils, type IpcRendererEvent } from 'electron';
 import { isEventChannel, isInvokeChannel } from '@shared/ipc-channels';
 
 /**
@@ -6,6 +6,10 @@ import { isEventChannel, isInvokeChannel } from '@shared/ipc-channels';
  * 型付けは renderer 側の lib/ipc.ts で行う(preload には zod を持ち込まない)。
  */
 const api = {
+  /** ドロップ/選択された File のローカルパス(sandbox では File.path が使えないため) */
+  pathForFile(file: File): string {
+    return webUtils.getPathForFile(file);
+  },
   invoke(channel: string, input?: unknown): Promise<unknown> {
     if (!isInvokeChannel(channel)) {
       return Promise.reject(new Error(`unknown ipc channel: ${channel}`));

@@ -31,6 +31,9 @@ export const IPC_INVOKE_CHANNELS = [
   'tools:list',
   'tools:setPolicy',
   'tools:approve',
+  'attachments:addBytes',
+  'attachments:addPath',
+  'attachments:get',
 ] as const;
 
 /** main -> renderer の一方向イベントチャネル */

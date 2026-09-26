@@ -14,6 +14,12 @@ export function getAdapter(kind: ServerKind): ProviderAdapter {
   return a;
 }
 
-export type { ProviderAdapter, ChatRequest, CanonicalMessage, ToolDefinition } from './types';
+export type {
+  ProviderAdapter,
+  ChatRequest,
+  CanonicalMessage,
+  CanonicalMedia,
+  ToolDefinition,
+} from './types';
 export { ProviderError } from './types';
 export { resolveCapabilities, guessFromModelName } from './capabilities';
