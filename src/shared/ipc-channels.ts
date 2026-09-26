@@ -40,10 +40,18 @@ export const IPC_INVOKE_CHANNELS = [
   'attachments:addBytes',
   'attachments:addPath',
   'attachments:get',
+  'mcp:list',
+  'mcp:create',
+  'mcp:update',
+  'mcp:delete',
+  'mcp:connect',
+  'mcp:disconnect',
+  'mcp:importJson',
+  'mcp:exportJson',
 ] as const;
 
 /** main -> renderer の一方向イベントチャネル */
-export const IPC_EVENT_CHANNELS = ['chat:event'] as const;
+export const IPC_EVENT_CHANNELS = ['chat:event', 'mcp:status'] as const;
 
 export type IpcInvokeChannel = (typeof IPC_INVOKE_CHANNELS)[number];
 export type IpcEventChannel = (typeof IPC_EVENT_CHANNELS)[number];

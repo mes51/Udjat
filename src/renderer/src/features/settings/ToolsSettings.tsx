@@ -133,7 +133,14 @@ export function ToolsSettings() {
               className="border-border flex items-center gap-3 rounded-md border px-3 py-2"
             >
               <div className="min-w-0 flex-1">
-                <div className="font-mono text-sm">{t.name}</div>
+                <div className="flex items-center gap-2 font-mono text-sm">
+                  {t.name}
+                  {t.source === 'mcp' && (
+                    <span className="border-border text-fg-muted rounded border px-1 font-sans text-[10px]">
+                      MCP
+                    </span>
+                  )}
+                </div>
                 <div className="text-fg-muted truncate text-[11px]">{t.description}</div>
               </div>
               <Select

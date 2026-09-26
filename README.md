@@ -4,7 +4,7 @@ LAN 上のローカル LLM サーバー(Ollama / LM Studio / llama.cpp / vLLM)�
 動画を添付し、LLM 自身がツール呼び出しでフレームを取り出して理解できることを中核機能とする。
 
 - 形態: Electron + React + TypeScript
-- 状態: M4(分岐・検索・エクスポート)実装済み。M5(MCP)未着手
+- 状態: M5(MCP クライアント)実装済み。M6(PDF・音声・仕上げ)未着手
 
 ## ドキュメント
 

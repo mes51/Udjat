@@ -18,6 +18,7 @@ import { invoke } from '@renderer/lib/ipc';
 import { useProfileMutations, useProfiles } from '@renderer/lib/queries';
 import { cn } from '@renderer/lib/utils';
 import { useUiStore } from '@renderer/state/ui-store';
+import { McpSettings } from './McpSettings';
 import { ToolsSettings } from './ToolsSettings';
 
 const DEFAULT_URLS: Record<ServerKind, string> = {
@@ -262,7 +263,7 @@ export function ProfilesDialog() {
     if (open) void invoke('app:info').then(setInfo);
   }, [open]);
 
-  const [tab, setTab] = useState<'servers' | 'tools'>('servers');
+  const [tab, setTab] = useState<'servers' | 'tools' | 'mcp'>('servers');
 
   // 未選択なら先頭のプロファイル、無ければ新規フォーム
   const effectiveId: string | 'new' = selectedId ?? profiles.data?.[0]?.id ?? 'new';
@@ -275,9 +276,11 @@ export function ProfilesDialog() {
       onOpenChange={setOpen}
       title="設定"
       description={
-        tab === 'servers'
-          ? '接続先の LLM サーバーを登録します'
-          : 'ツールの承認ポリシーと Web 検索の設定'
+        {
+          servers: '接続先の LLM サーバーを登録します',
+          tools: 'ツールの承認ポリシーと Web 検索の設定',
+          mcp: 'MCP サーバーの登録と接続',
+        }[tab]
       }
     >
       <div className="border-border mb-4 flex gap-1 border-b">
@@ -285,6 +288,7 @@ export function ProfilesDialog() {
           [
             ['servers', 'サーバー'],
             ['tools', 'ツール'],
+            ['mcp', 'MCP'],
           ] as const
         ).map(([id, label]) => (
           <button
@@ -301,6 +305,7 @@ export function ProfilesDialog() {
         ))}
       </div>
       {tab === 'tools' && <ToolsSettings />}
+      {tab === 'mcp' && <McpSettings />}
       <div className={cn('flex gap-4', tab !== 'servers' && 'hidden')}>
         <div className="w-52 shrink-0">
           {profiles.data?.map((p) => (

@@ -179,6 +179,41 @@ export const ToolMetaSchema = z.object({
 });
 export type ToolMeta = z.infer<typeof ToolMetaSchema>;
 
+/** MCP サーバーの接続設定(Claude Desktop の mcpServers と互換の形を保つ) */
+export const McpStdioConfigSchema = z.object({
+  command: z.string().min(1),
+  args: z.array(z.string()).default([]),
+  env: z.record(z.string(), z.string()).default({}),
+  cwd: z.string().optional(),
+});
+export const McpHttpConfigSchema = z.object({
+  url: z.string().url(),
+  headers: z.record(z.string(), z.string()).default({}),
+});
+export const McpServerSchema = z.object({
+  id: z.string(),
+  /** 表示名。ツール名の名前空間にも使う(英数字と _ に正規化) */
+  name: z.string().min(1),
+  transport: z.enum(['stdio', 'http']),
+  config: z.union([McpStdioConfigSchema, McpHttpConfigSchema]),
+  enabled: z.boolean(),
+  /** アプリ起動時に自動接続するか */
+  autostart: z.boolean(),
+});
+export type McpServer = z.infer<typeof McpServerSchema>;
+export const McpServerInputSchema = McpServerSchema.omit({ id: true });
+export type McpServerInput = z.input<typeof McpServerInputSchema>;
+
+export const McpServerStatusSchema = z.object({
+  id: z.string(),
+  state: z.enum(['disconnected', 'connecting', 'connected', 'error']),
+  error: z.string().nullable(),
+  tools: z.array(z.object({ name: z.string(), description: z.string() })),
+  serverName: z.string().nullable(),
+  serverVersion: z.string().nullable(),
+});
+export type McpServerStatus = z.infer<typeof McpServerStatusSchema>;
+
 export const ToolApprovalDecisionSchema = z.enum(['allow', 'allow-conversation', 'deny']);
 export type ToolApprovalDecision = z.infer<typeof ToolApprovalDecisionSchema>;
 

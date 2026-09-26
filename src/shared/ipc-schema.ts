@@ -8,6 +8,9 @@ import {
   ChatRunEventSchema,
   ConversationPatchSchema,
   ConversationSchema,
+  McpServerInputSchema,
+  McpServerSchema,
+  McpServerStatusSchema,
   MessageSchema,
   ModelInfoSchema,
   RoleSchema,
@@ -204,10 +207,33 @@ export const ipcInvokeSchema = {
     output: AttachmentSchema,
   },
   'attachments:get': { input: Id, output: AttachmentSchema.nullable() },
+
+  'mcp:list': {
+    input: z.undefined(),
+    output: z.object({
+      servers: z.array(McpServerSchema),
+      statuses: z.array(McpServerStatusSchema),
+    }),
+  },
+  'mcp:create': { input: McpServerInputSchema, output: McpServerSchema },
+  'mcp:update': {
+    input: z.object({ id: z.string().min(1), patch: McpServerInputSchema.partial() }),
+    output: McpServerSchema,
+  },
+  'mcp:delete': { input: Id, output: z.boolean() },
+  'mcp:connect': { input: Id, output: McpServerStatusSchema },
+  'mcp:disconnect': { input: Id, output: z.undefined() },
+  /** Claude Desktop 形式の mcpServers JSON を取り込む。同名は上書き */
+  'mcp:importJson': {
+    input: z.object({ json: z.string().min(1) }),
+    output: z.object({ created: z.number(), updated: z.number() }),
+  },
+  'mcp:exportJson': { input: z.undefined(), output: z.string() },
 } as const satisfies Record<IpcInvokeChannel, { input: z.ZodType; output: z.ZodType }>;
 
 export const ipcEventSchema = {
   'chat:event': ChatRunEventSchema,
+  'mcp:status': McpServerStatusSchema,
 } as const satisfies Record<IpcEventChannel, z.ZodType>;
 
 export type IpcInvokeSchema = typeof ipcInvokeSchema;

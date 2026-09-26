@@ -5,6 +5,9 @@ import type { ServerProfile, ServerProfileInput } from '@shared/schemas';
 import { exportFileName, exportJson, exportMarkdown } from '@main/chat/export';
 import type { ChatService } from '@main/chat/service';
 import type { ToolRegistry } from '@main/tools/registry';
+import type { McpManager } from '@main/tools/mcp/manager';
+import { parseMcpServersJson, toMcpServersJson } from '@main/tools/mcp/mcp-config';
+import type { McpServerRepository } from '@main/db/repositories/mcp-servers';
 import type { MediaStore } from '@main/media/store';
 import { mimeFromName } from '@main/media/store';
 import type { Database } from '@main/db/client';
@@ -26,6 +29,8 @@ export interface AppContext {
   chat: ChatService;
   tools: ToolRegistry;
   media: MediaStore;
+  mcp: McpManager;
+  mcpServers: McpServerRepository;
 }
 
 export function registerIpcHandlers(ctx: AppContext): void {
@@ -196,6 +201,54 @@ export function registerIpcHandlers(ctx: AppContext): void {
     }),
   );
   handleIpc('attachments:get', ({ id }) => ctx.media.get(id));
+
+  // --- MCP ---
+  handleIpc('mcp:list', () => {
+    const servers = ctx.mcpServers.list();
+    return { servers, statuses: servers.map((s) => ctx.mcp.status(s)) };
+  });
+  handleIpc('mcp:create', (input) => ctx.mcpServers.create(input));
+  handleIpc('mcp:update', async ({ id, patch }) => {
+    const s = ctx.mcpServers.update(id, patch);
+    if (!s) throw new Error('MCP サーバーが見つかりません');
+    // 接続中に設定が変わったら繋ぎ直す。無効化されたら切断
+    if (ctx.mcp.isConnected(id)) {
+      if (s.enabled) void ctx.mcp.connect(s);
+      else await ctx.mcp.disconnect(id);
+    }
+    return s;
+  });
+  handleIpc('mcp:delete', async ({ id }) => {
+    await ctx.mcp.disconnect(id);
+    return ctx.mcpServers.delete(id);
+  });
+  handleIpc('mcp:connect', ({ id }) => {
+    const s = ctx.mcpServers.get(id);
+    if (!s) throw new Error('MCP サーバーが見つかりません');
+    return ctx.mcp.connect(s);
+  });
+  handleIpc('mcp:disconnect', async ({ id }) => {
+    await ctx.mcp.disconnect(id);
+    return undefined;
+  });
+  handleIpc('mcp:importJson', ({ json }) => {
+    const inputs = parseMcpServersJson(json);
+    const existing = ctx.mcpServers.list();
+    let created = 0;
+    let updated = 0;
+    for (const input of inputs) {
+      const same = existing.find((s) => s.name === input.name);
+      if (same) {
+        ctx.mcpServers.update(same.id, input);
+        updated++;
+      } else {
+        ctx.mcpServers.create(input);
+        created++;
+      }
+    }
+    return { created, updated };
+  });
+  handleIpc('mcp:exportJson', () => toMcpServersJson(ctx.mcpServers.list()));
 
   // --- ツール ---
   handleIpc('tools:list', () => ctx.tools.list());

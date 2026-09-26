@@ -6,6 +6,8 @@ import { ChatService } from './chat/service';
 import { openDatabase, type Database } from './db/client';
 import { AttachmentRepository } from './db/repositories/attachments';
 import { ConversationRepository } from './db/repositories/conversations';
+import { McpServerRepository } from './db/repositories/mcp-servers';
+import { McpManager } from './tools/mcp/manager';
 import { FfmpegService } from './media/ffmpeg';
 import { MediaStore } from './media/store';
 import { VideoOps } from './media/video-ops';
@@ -44,6 +46,7 @@ function registerMediaProtocol(media: MediaStore): void {
 
 let db: Database | null = null;
 let chat: ChatService | null = null;
+let mcp: McpManager | null = null;
 let mainWindow: BrowserWindow | null = null;
 
 function createWindow(): BrowserWindow {
@@ -111,6 +114,13 @@ if (!app.requestSingleInstanceLock()) {
     const tools = new ToolRegistry(db);
     registerBuiltinTools(tools);
     for (const t of createVideoTools({ store: media, ops })) tools.register(t);
+    const mcpServers = new McpServerRepository(db);
+    mcp = new McpManager({
+      registry: tools,
+      media,
+      onStatusChange: (status) => broadcastIpcEvent('mcp:status', status),
+    });
+    void mcp.autostart(mcpServers.list());
     chat = new ChatService({
       profiles,
       conversations,
@@ -120,7 +130,18 @@ if (!app.requestSingleInstanceLock()) {
       getSetting: (key) => settings.get(key),
       media: { store: media, ops, attachments, resolver: new MediaResolver(media, ops) },
     });
-    registerIpcHandlers({ db, paths, profiles, conversations, messages, chat, tools, media });
+    registerIpcHandlers({
+      db,
+      paths,
+      profiles,
+      conversations,
+      messages,
+      chat,
+      tools,
+      media,
+      mcp,
+      mcpServers,
+    });
     mainWindow = createWindow();
 
     app.on('activate', () => {
@@ -132,8 +153,22 @@ if (!app.requestSingleInstanceLock()) {
     if (process.platform !== 'darwin') app.quit();
   });
 
-  app.on('will-quit', () => {
+  app.on('will-quit', (e) => {
     chat?.abortAll();
+    // MCP の子プロセスを確実に終了させてから閉じる
+    if (mcp) {
+      const m = mcp;
+      mcp = null;
+      e.preventDefault();
+      void Promise.race([m.disconnectAll(), new Promise((r) => setTimeout(r, 2000))]).finally(
+        () => {
+          db?.close();
+          db = null;
+          app.quit();
+        },
+      );
+      return;
+    }
     db?.close();
     db = null;
   });
