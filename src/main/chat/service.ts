@@ -204,7 +204,8 @@ export class ChatService {
     // ツール呼び出しを含む応答は複数セグメントに分かれているので、直前のユーザー発言まで遡って
     // そこから作り直す(途中のツール結果は新しい分岐には含めない)
     const ancestors = messages.pathToRoot(target.id);
-    const lastUser = [...ancestors].reverse().find((m) => m.role === 'user');
+    // kind: tool-media もロール上は user だが、ツール結果の配送なので遡る対象にしない
+    const lastUser = [...ancestors].reverse().find((m) => m.role === 'user' && m.kind === 'normal');
     const parentId = lastUser ? lastUser.id : target.parentId;
     const assistant = messages.create({
       conversationId: conv.id,
@@ -259,6 +260,7 @@ export class ChatService {
       model,
       info?.capabilities,
       profile.capabilityOverrides,
+      profile.modelCapabilityOverrides[model] ?? {},
     );
   }
 

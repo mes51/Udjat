@@ -76,6 +76,11 @@ export function registerIpcHandlers(ctx: AppContext): void {
     if (!p) throw new Error('プロファイルが見つかりません');
     return ctx.chat.capabilitiesFor(p, model);
   });
+  handleIpc('models:setCapabilities', async ({ profileId, model, overrides }) => {
+    const p = ctx.profiles.setModelCapabilities(profileId, model, overrides);
+    if (!p) throw new Error('プロファイルが見つかりません');
+    return ctx.chat.capabilitiesFor(p, model);
+  });
 
   // --- 会話 ---
   handleIpc('conversations:list', () => ctx.conversations.list());
@@ -147,5 +152,11 @@ export function registerIpcHandlers(ctx: AppContext): void {
 }
 
 function tempProfile(input: ServerProfileInput): ServerProfile {
-  return { ...input, id: 'temp', createdAt: 0, updatedAt: 0 };
+  return {
+    ...input,
+    modelCapabilityOverrides: input.modelCapabilityOverrides ?? {},
+    id: 'temp',
+    createdAt: 0,
+    updatedAt: 0,
+  };
 }

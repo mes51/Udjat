@@ -17,6 +17,7 @@ export const IPC_INVOKE_CHANNELS = [
   'profiles:models',
   'profiles:test',
   'models:capabilities',
+  'models:setCapabilities',
   'conversations:list',
   'conversations:create',
   'conversations:get',

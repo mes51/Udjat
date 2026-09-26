@@ -60,7 +60,10 @@ export const ServerProfileSchema = z.object({
   apiKey: z.string().nullable(),
   defaultModel: z.string().nullable(),
   defaultParams: ChatParamsSchema,
+  /** プロファイル全体(全モデル)への上書き */
   capabilityOverrides: CapabilityOverridesSchema,
+  /** モデル id ごとの上書き(プロファイル全体の上書きより優先) */
+  modelCapabilityOverrides: z.record(z.string(), CapabilityOverridesSchema),
   createdAt: z.number(),
   updatedAt: z.number(),
 });
@@ -74,8 +77,11 @@ export const ServerProfileInputSchema = ServerProfileSchema.pick({
   defaultModel: true,
   defaultParams: true,
   capabilityOverrides: true,
+}).extend({
+  modelCapabilityOverrides: z.record(z.string(), CapabilityOverridesSchema).default({}),
 });
-export type ServerProfileInput = z.infer<typeof ServerProfileInputSchema>;
+/** 入力側の型(modelCapabilityOverrides は省略可) */
+export type ServerProfileInput = z.input<typeof ServerProfileInputSchema>;
 
 export const ModelInfoSchema = z.object({
   id: z.string(),

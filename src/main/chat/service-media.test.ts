@@ -257,6 +257,11 @@ describe.skipIf(!available.ffmpeg)('ChatService with video attachments', () => {
     );
     // 会話タイトルは添付名から
     expect(conversations.get(c.id)!.title).toBe('clip.mp4');
+
+    // 再生成は tool-media(role: user)ではなく、本当のユーザー発言の直下に分岐を作る
+    const r2 = await service.regenerate(path[4]!.id);
+    expect(messages.get(r2.assistantMessageId)!.parentId).toBe(path[0]!.id);
+    await service.waitFor(r2.runId);
   });
 
   it('sends the video natively when requested and the server supports it', async () => {

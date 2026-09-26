@@ -12,6 +12,7 @@ const profile: ServerProfile = {
   defaultModel: 'qwen3:8b',
   defaultParams: { contextLength: 8192, temperature: 0.7 },
   capabilityOverrides: {},
+  modelCapabilityOverrides: {},
   createdAt: 0,
   updatedAt: 0,
 };

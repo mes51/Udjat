@@ -9,6 +9,8 @@ export interface Migration {
 }
 
 export const migrations: readonly Migration[] = [
+  // 新しいものを先頭に書かない。version 順に適用される
+
   {
     version: 1,
     name: 'initial',
@@ -104,6 +106,13 @@ export const migrations: readonly Migration[] = [
         text,
         tokenize='trigram'
       );
+    `,
+  },
+  {
+    version: 2,
+    name: 'model-capability-overrides',
+    up: `
+      ALTER TABLE server_profiles ADD COLUMN model_capability_overrides TEXT NOT NULL DEFAULT '{}';
     `,
   },
 ];

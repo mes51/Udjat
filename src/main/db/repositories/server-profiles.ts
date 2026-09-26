@@ -11,6 +11,7 @@ interface Row {
   default_model: string | null;
   default_params: string;
   capability_overrides: string;
+  model_capability_overrides: string;
   created_at: number;
   updated_at: number;
 }
@@ -25,6 +26,9 @@ function fromRow(r: Row): ServerProfile {
     defaultModel: r.default_model,
     defaultParams: JSON.parse(r.default_params) as ServerProfile['defaultParams'],
     capabilityOverrides: JSON.parse(r.capability_overrides) as ServerProfile['capabilityOverrides'],
+    modelCapabilityOverrides: JSON.parse(
+      r.model_capability_overrides,
+    ) as ServerProfile['modelCapabilityOverrides'],
     createdAt: r.created_at,
     updatedAt: r.updated_at,
   };
@@ -55,8 +59,8 @@ export class ServerProfileRepository {
     this.db
       .prepare(
         `INSERT INTO server_profiles
-           (id, name, kind, base_url, api_key, default_model, default_params, capability_overrides, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           (id, name, kind, base_url, api_key, default_model, default_params, capability_overrides, model_capability_overrides, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         id,
@@ -67,6 +71,7 @@ export class ServerProfileRepository {
         input.defaultModel,
         JSON.stringify(input.defaultParams),
         JSON.stringify(input.capabilityOverrides),
+        JSON.stringify(input.modelCapabilityOverrides ?? {}),
         now,
         now,
       );
@@ -83,7 +88,7 @@ export class ServerProfileRepository {
     this.db
       .prepare(
         `UPDATE server_profiles SET name = ?, kind = ?, base_url = ?, api_key = ?, default_model = ?,
-           default_params = ?, capability_overrides = ?, updated_at = ? WHERE id = ?`,
+           default_params = ?, capability_overrides = ?, model_capability_overrides = ?, updated_at = ? WHERE id = ?`,
       )
       .run(
         next.name,
@@ -93,10 +98,28 @@ export class ServerProfileRepository {
         next.defaultModel,
         JSON.stringify(next.defaultParams),
         JSON.stringify(next.capabilityOverrides),
+        JSON.stringify(next.modelCapabilityOverrides),
         Date.now(),
         id,
       );
     return this.get(id);
+  }
+
+  /** モデル単位の capability 上書きを設定する。overrides が空なら削除 */
+  setModelCapabilities(
+    id: string,
+    model: string,
+    overrides: ServerProfile['capabilityOverrides'],
+  ): ServerProfile | null {
+    const cur = this.get(id);
+    if (!cur) return null;
+    const next = { ...cur.modelCapabilityOverrides };
+    const cleaned = Object.fromEntries(
+      Object.entries(overrides).filter(([, v]) => v !== undefined),
+    );
+    if (Object.keys(cleaned).length === 0) delete next[model];
+    else next[model] = cleaned;
+    return this.update(id, { modelCapabilityOverrides: next });
   }
 
   delete(id: string): boolean {

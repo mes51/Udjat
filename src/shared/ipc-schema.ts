@@ -4,6 +4,7 @@ import {
   AttachmentRefSchema,
   AttachmentSchema,
   CapabilitiesSchema,
+  CapabilityOverridesSchema,
   ChatRunEventSchema,
   ConversationPatchSchema,
   ConversationSchema,
@@ -89,6 +90,15 @@ export const ipcInvokeSchema = {
   'profiles:test': { input: ServerProfileInputSchema, output: ConnectionTestResultSchema },
   'models:capabilities': {
     input: z.object({ profileId: z.string().min(1), model: z.string().min(1) }),
+    output: CapabilitiesSchema,
+  },
+  /** モデル単位の上書きを保存して、解決後の capability を返す */
+  'models:setCapabilities': {
+    input: z.object({
+      profileId: z.string().min(1),
+      model: z.string().min(1),
+      overrides: CapabilityOverridesSchema,
+    }),
     output: CapabilitiesSchema,
   },
 

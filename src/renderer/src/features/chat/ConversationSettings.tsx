@@ -1,8 +1,16 @@
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
-import type { ChatParams, Conversation } from '@shared/schemas';
+import type { CapabilityOverrides, ChatParams, Conversation } from '@shared/schemas';
 import { Button } from '@renderer/components/ui/button';
 import { Field, Input, Select, Textarea } from '@renderer/components/ui/input';
-import { useCapabilities, useConversationMutations, useTools } from '@renderer/lib/queries';
+import { invoke } from '@renderer/lib/ipc';
+import {
+  keys,
+  useCapabilities,
+  useConversationMutations,
+  useProfiles,
+  useTools,
+} from '@renderer/lib/queries';
 
 type NumKey =
   | 'temperature'
@@ -123,20 +131,108 @@ export function ConversationSettings({ conversation }: { conversation: Conversat
           <option value="off">無効</option>
         </Select>
       </Field>
-      {caps.data && (
-        <div className="text-fg-muted text-[11px]">
-          推定 capability: 画像 {caps.data.image ? '○' : '×'} / 音声 {caps.data.audio ? '○' : '×'} /
-          動画 {caps.data.video === 'native' ? 'ネイティブ' : 'フレーム分解'} / ツール{' '}
-          {caps.data.tools ? '○' : '×'} / 思考 {caps.data.reasoning ? '○' : '×'}
-        </div>
-      )}
       <div className="flex justify-end gap-2">
         <Button onClick={save} disabled={!dirty || update.isPending}>
           保存
         </Button>
       </div>
       {update.isError && <p className="text-xs text-red-400">{String(update.error)}</p>}
+      {conversation.serverProfileId && conversation.model && (
+        <ModelCapabilities profileId={conversation.serverProfileId} model={conversation.model} />
+      )}
       <ConversationTools conversation={conversation} />
+    </div>
+  );
+}
+
+type Tri = '' | 'on' | 'off';
+const CAP_FIELDS: { key: 'image' | 'tools' | 'reasoning' | 'audio'; label: string }[] = [
+  { key: 'image', label: '画像入力' },
+  { key: 'tools', label: 'ツール呼び出し' },
+  { key: 'reasoning', label: '思考 (thinking)' },
+  { key: 'audio', label: '音声入力' },
+];
+
+/**
+ * このモデルの capability。自動推定の結果を表示し、モデル単位で上書きできる
+ * (プロファイル全体の上書きより優先。切り替えは即保存)。
+ */
+function ModelCapabilities({ profileId, model }: { profileId: string; model: string }) {
+  const qc = useQueryClient();
+  const caps = useCapabilities(profileId, model);
+  const profiles = useProfiles();
+  const profile = profiles.data?.find((p) => p.id === profileId);
+  const overrides: CapabilityOverrides = profile?.modelCapabilityOverrides[model] ?? {};
+  const save = useMutation({
+    mutationFn: (next: CapabilityOverrides) =>
+      invoke('models:setCapabilities', { profileId, model, overrides: next }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: keys.profiles });
+      void qc.invalidateQueries({ queryKey: keys.capabilities(profileId, model) });
+    },
+  });
+
+  const tri = (k: (typeof CAP_FIELDS)[number]['key']): Tri => {
+    const v = overrides[k];
+    return v === undefined ? '' : v ? 'on' : 'off';
+  };
+  const setTri = (k: (typeof CAP_FIELDS)[number]['key'], v: Tri) => {
+    const next = { ...overrides };
+    if (v === '') delete next[k];
+    else next[k] = v === 'on';
+    save.mutate(next);
+  };
+  const setVideo = (v: '' | 'native' | 'none') => {
+    const next = { ...overrides };
+    if (v === '') delete next.video;
+    else next.video = v;
+    save.mutate(next);
+  };
+  const hasOverride = Object.keys(overrides).length > 0;
+
+  return (
+    <div className="border-border mt-2 border-t pt-3">
+      <div className="mb-1 flex items-center justify-between">
+        <h4 className="text-xs font-medium">このモデルの capability</h4>
+        {hasOverride && (
+          <button type="button" className="text-accent text-[11px]" onClick={() => save.mutate({})}>
+            自動推定に戻す
+          </button>
+        )}
+      </div>
+      <p className="text-fg-muted mb-2 truncate text-[11px]" title={model}>
+        {model}
+        {caps.data && (
+          <>
+            {' '}
+            · 現在: 画像 {caps.data.image ? '○' : '×'} / ツール {caps.data.tools ? '○' : '×'} / 思考{' '}
+            {caps.data.reasoning ? '○' : '×'} / 音声 {caps.data.audio ? '○' : '×'} / 動画{' '}
+            {caps.data.video === 'native' ? 'ネイティブ' : 'フレーム分解'}
+          </>
+        )}
+      </p>
+      <div className="grid grid-cols-2 gap-2">
+        {CAP_FIELDS.map(({ key, label }) => (
+          <Field key={key} label={label}>
+            <Select value={tri(key)} onChange={(e) => setTri(key, e.target.value as Tri)}>
+              <option value="">自動</option>
+              <option value="on">あり</option>
+              <option value="off">なし</option>
+            </Select>
+          </Field>
+        ))}
+        <Field label="動画入力" hint="ネイティブ = 動画ファイルをそのまま送れる (llama.cpp / vLLM)">
+          <Select
+            value={overrides.video ?? ''}
+            onChange={(e) => setVideo(e.target.value as '' | 'native' | 'none')}
+          >
+            <option value="">自動</option>
+            <option value="native">ネイティブ</option>
+            <option value="none">フレーム分解のみ</option>
+          </Select>
+        </Field>
+      </div>
+      {save.isError && <p className="mt-1 text-xs text-red-400">{String(save.error)}</p>}
     </div>
   );
 }

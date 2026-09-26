@@ -34,6 +34,26 @@ describe('ServerProfileRepository', () => {
     expect(profiles.delete(p.id)).toBe(true);
     expect(profiles.get(p.id)).toBeNull();
   });
+
+  it('stores per-model capability overrides and removes empty ones', () => {
+    const p = profiles.create({
+      name: 'u',
+      kind: 'openai-compatible',
+      baseUrl: 'http://10.0.0.2:8888',
+      apiKey: 'sk-unsloth-x',
+      defaultModel: null,
+      defaultParams: {},
+      capabilityOverrides: {},
+    });
+    expect(p.modelCapabilityOverrides).toEqual({});
+    const u1 = profiles.setModelCapabilities(p.id, 'unsloth/gemma-3-27b', {
+      image: true,
+      tools: undefined,
+    });
+    expect(u1?.modelCapabilityOverrides).toEqual({ 'unsloth/gemma-3-27b': { image: true } });
+    const u2 = profiles.setModelCapabilities(p.id, 'unsloth/gemma-3-27b', {});
+    expect(u2?.modelCapabilityOverrides).toEqual({});
+  });
 });
 
 describe('ConversationRepository', () => {

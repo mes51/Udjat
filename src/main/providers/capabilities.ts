@@ -64,20 +64,24 @@ export function guessFromModelName(kind: ServerKind, model: string): Capabilitie
   };
 }
 
+/**
+ * 優先順位: ヒューリスティクス < サーバー自己申告 < プロファイル全体の上書き < モデル単位の上書き
+ */
 export function resolveCapabilities(
   kind: ServerKind,
   model: string,
   reported: ModelInfo['capabilities'] | undefined,
   overrides: CapabilityOverrides,
+  modelOverrides: CapabilityOverrides = {},
 ): Capabilities {
   const merged: Capabilities = { ...guessFromModelName(kind, model) };
-  for (const src of [reported ?? {}, overrides]) {
+  for (const src of [reported ?? {}, overrides, modelOverrides]) {
     for (const [k, v] of Object.entries(src)) {
       if (v !== undefined) (merged as unknown as Record<string, unknown>)[k] = v;
     }
   }
-  // 画像非対応なら動画のネイティブ入力もあり得ない
-  if (!merged.image && merged.video === 'native' && overrides.video === undefined)
-    merged.video = 'none';
+  // 画像非対応なら動画のネイティブ入力もあり得ない(明示的に video を上書きした場合を除く)
+  const videoForced = modelOverrides.video !== undefined || overrides.video !== undefined;
+  if (!merged.image && merged.video === 'native' && !videoForced) merged.video = 'none';
   return merged;
 }

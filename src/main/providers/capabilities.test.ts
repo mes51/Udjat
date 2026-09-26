@@ -46,6 +46,22 @@ describe('resolveCapabilities', () => {
     expect(caps).toMatchObject({ image: true, tools: true });
   });
 
+  it('applies per-model overrides on top of profile overrides', () => {
+    const caps = resolveCapabilities(
+      'openai-compatible',
+      'mystery',
+      undefined,
+      { image: false },
+      { image: true, video: 'native' },
+    );
+    expect(caps.image).toBe(true);
+    expect(caps.video).toBe('native');
+    // モデル上書きなしならプロファイル上書きが効く
+    expect(
+      resolveCapabilities('openai-compatible', 'mystery', undefined, { image: false }).image,
+    ).toBe(false);
+  });
+
   it('drops native video when image is disabled unless the user forced it', () => {
     expect(resolveCapabilities('llamacpp', 'qwen3-vl', undefined, { image: false }).video).toBe(
       'none',
