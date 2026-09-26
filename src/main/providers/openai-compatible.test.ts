@@ -51,6 +51,27 @@ describe('OpenAICompatibleAdapter', () => {
     ]);
   });
 
+  it('reads llama.cpp capabilities from models[] and shortens path-like ids', async () => {
+    const id = 'C:\\Users\\m\\.cache\\models--x\\gemma-4-E4B-it-Q8_0.gguf';
+    server = await startMockServer({
+      'GET /v1/models': (_r, _b, res) =>
+        json(res, {
+          data: [{ id, meta: { n_ctx_train: 131072 } }],
+          models: [{ name: id, model: id, capabilities: ['completion', 'multimodal'] }],
+        }),
+      'GET /props': (_r, _b, res) => json(res, { default_generation_settings: { n_ctx: 8192 } }),
+    });
+    const models = await new OpenAICompatibleAdapter('llamacpp').listModels(
+      server.profile('llamacpp'),
+    );
+    expect(models[0]).toMatchObject({
+      id,
+      name: 'gemma-4-E4B-it-Q8_0.gguf',
+      contextLength: 8192,
+      capabilities: { image: true },
+    });
+  });
+
   it('streams text, reasoning, usage and finish reason', async () => {
     server = await startMockServer({
       'POST /v1/chat/completions': (_r, _b, res) =>

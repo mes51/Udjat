@@ -124,11 +124,27 @@ export class OpenAICompatibleAdapter implements ProviderAdapter {
   async listModels(profile: ServerProfile, signal?: AbortSignal): Promise<ModelInfo[]> {
     const res = await requestJson<{
       data?: { id: string; meta?: { n_ctx_train?: number; n_params?: number } }[];
+      /** llama.cpp は Ollama 互換の models[] も返し、capabilities(multimodal 等)が入る */
+      models?: { name?: string; model?: string; capabilities?: string[] }[];
     }>(profile, '/v1/models', { signal, timeoutMs: 5_000 });
+    const reported = new Map<string, string[]>();
+    for (const m of res.models ?? []) {
+      const key = m.model ?? m.name;
+      if (key && Array.isArray(m.capabilities)) reported.set(key, m.capabilities);
+    }
     const models: ModelInfo[] = (res.data ?? []).map((m) => {
-      const info: ModelInfo = { id: m.id, name: m.id };
+      // id がファイルパスのことがある(llama.cpp)ので、表示名は末尾だけにする
+      const info: ModelInfo = { id: m.id, name: m.id.split(/[\\/]/).pop() || m.id };
       if (m.meta?.n_ctx_train) info.contextLength = m.meta.n_ctx_train;
       if (m.meta) info.details = m.meta;
+      const caps = reported.get(m.id);
+      if (caps) {
+        info.capabilities = {
+          image: caps.includes('multimodal') || caps.includes('vision'),
+          ...(caps.includes('tools') ? { tools: true } : {}),
+          ...(caps.includes('thinking') ? { reasoning: true } : {}),
+        };
+      }
       return info;
     });
     if (this.kind === 'llamacpp') {
@@ -143,6 +159,7 @@ export class OpenAICompatibleAdapter implements ProviderAdapter {
             m.contextLength = props.default_generation_settings.n_ctx;
           if (props.modalities) {
             m.capabilities = {
+              ...m.capabilities,
               ...(props.modalities.vision !== undefined ? { image: props.modalities.vision } : {}),
               ...(props.modalities.audio !== undefined ? { audio: props.modalities.audio } : {}),
             };

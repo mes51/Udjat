@@ -11,6 +11,7 @@ import {
 } from '@shared/schemas';
 import type { AppInfo } from '@shared/ipc-schema';
 import { Button } from '@renderer/components/ui/button';
+import { useConfirm } from '@renderer/components/ui/confirm';
 import { Dialog } from '@renderer/components/ui/dialog';
 import { Field, Input, Select } from '@renderer/components/ui/input';
 import { invoke } from '@renderer/lib/ipc';
@@ -55,6 +56,7 @@ function ProfileForm({
   onDeleted: () => void;
 }) {
   const { create, update, remove } = useProfileMutations();
+  const confirmDialog = useConfirm();
   const [form, setForm] = useState<ServerProfileInput>(initial ?? EMPTY);
   const [ctx, setCtx] = useState(initial?.defaultParams.contextLength?.toString() ?? '');
   const [models, setModels] = useState<ModelInfo[]>([]);
@@ -228,8 +230,12 @@ function ProfileForm({
           <Button
             variant="danger"
             onClick={() =>
-              confirm('このプロファイルを削除しますか?') &&
-              remove.mutate(initial.id, { onSuccess: onDeleted })
+              void confirmDialog({
+                title: 'このプロファイルを削除しますか?',
+                description: 'この接続先を使っている会話は、接続先未設定になります。',
+                confirmLabel: '削除',
+                danger: true,
+              }).then((ok) => ok && remove.mutate(initial.id, { onSuccess: onDeleted }))
             }
           >
             <Trash2 size={14} /> 削除

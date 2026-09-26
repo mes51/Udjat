@@ -321,13 +321,18 @@ export function MessageItem({
                 <div className="text-[15px] leading-relaxed whitespace-pre-wrap">{text}</div>
               )}
               <MediaParts message={message} />
-              <div className="mt-1 flex items-center gap-2 opacity-0 transition-opacity group-hover:opacity-100">
+              <div className="mt-1 flex items-center gap-2">
+                {branch && <BranchNav branch={branch} onSwitch={onSwitchBranch} />}
                 {onEdit && (
-                  <Button variant="ghost" size="sm" onClick={() => setEditing(true)}>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="opacity-0 transition-opacity group-hover:opacity-100"
+                    onClick={() => setEditing(true)}
+                  >
                     <Pencil size={12} /> 編集
                   </Button>
                 )}
-                {branch && <BranchNav branch={branch} onSwitch={onSwitchBranch} />}
               </div>
             </>
           )
@@ -359,13 +364,18 @@ export function MessageItem({
           <UsageLine usage={stream?.usage ?? message.usage} model={message.model} />
         )}
         {!isUser && !streaming && (isLastAssistant || branch) && (
-          <div className="mt-1 flex items-center gap-2 opacity-0 transition-opacity group-hover:opacity-100">
+          <div className="mt-1 flex items-center gap-2">
+            {branch && <BranchNav branch={branch} onSwitch={onSwitchBranch} />}
             {isLastAssistant && onRegenerate && (
-              <Button variant="ghost" size="sm" onClick={() => onRegenerate(message.id)}>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="opacity-0 transition-opacity group-hover:opacity-100"
+                onClick={() => onRegenerate(message.id)}
+              >
                 <RefreshCw size={12} /> 再生成
               </Button>
             )}
-            {branch && <BranchNav branch={branch} onSwitch={onSwitchBranch} />}
           </div>
         )}
       </div>

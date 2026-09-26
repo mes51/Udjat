@@ -2,6 +2,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { MessageSquarePlus, Pin, Search, Settings, Trash2, X } from 'lucide-react';
 import { useState } from 'react';
 import { Button } from '@renderer/components/ui/button';
+import { useConfirm } from '@renderer/components/ui/confirm';
 import { Input } from '@renderer/components/ui/input';
 import { invoke } from '@renderer/lib/ipc';
 import {
@@ -71,6 +72,7 @@ export function Sidebar() {
   const openProfiles = useUiStore((s) => s.setProfilesDialogOpen);
   const running = useStreamStore((s) => s.running);
   const [query, setQuery] = useState('');
+  const confirm = useConfirm();
 
   const newConversation = () => {
     const p = profiles.data?.[0] ?? null;
@@ -80,8 +82,14 @@ export function Sidebar() {
     );
   };
 
-  const del = (id: string) => {
-    if (!confirm('この会話を削除しますか?')) return;
+  const del = async (id: string) => {
+    const ok = await confirm({
+      title: 'この会話を削除しますか?',
+      description: 'メッセージと分岐がすべて削除されます。この操作は取り消せません。',
+      confirmLabel: '削除',
+      danger: true,
+    });
+    if (!ok) return;
     remove.mutate(id, { onSuccess: () => selected === id && select(null) });
   };
 
@@ -168,7 +176,7 @@ export function Sidebar() {
                   aria-label="削除"
                   onClick={(e) => {
                     e.stopPropagation();
-                    del(c.id);
+                    void del(c.id);
                   }}
                 >
                   <Trash2 size={12} />

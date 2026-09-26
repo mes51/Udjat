@@ -58,6 +58,27 @@ export function MessageList({
     .reverse()
     .find((m) => m.role === 'assistant' && m.kind === 'normal')?.id;
 
+  // 分岐ナビの表示位置。assistant の分岐(再生成)は、ツール呼び出しを含む応答でも
+  // 応答グループの末尾(最後の assistant セグメント)に出す。user の分岐(編集)はその発言に出す。
+  const navFor: Record<string, BranchInfo> = {};
+  for (let i = 0; i < messages.length; i++) {
+    const m = messages[i]!;
+    const b = branches[m.id];
+    if (!b) continue;
+    if (m.role === 'user' && m.kind === 'normal') {
+      navFor[m.id] = b;
+      continue;
+    }
+    if (m.role !== 'assistant') continue;
+    let target = m.id;
+    for (let j = i + 1; j < messages.length; j++) {
+      const n = messages[j]!;
+      if (n.role === 'user' && n.kind === 'normal') break;
+      if (n.role === 'assistant' && n.kind === 'normal') target = n.id;
+    }
+    navFor[target] = b;
+  }
+
   return (
     <div ref={containerRef} onScroll={onScroll} className="min-h-0 flex-1 overflow-y-auto">
       <div className="mx-auto max-w-4xl py-2">
@@ -72,7 +93,7 @@ export function MessageList({
             message={m}
             stream={streams[m.id]}
             isLastAssistant={m.id === lastAssistantId}
-            branch={branches[m.id]}
+            branch={navFor[m.id]}
             highlighted={m.id === highlightedId}
             // run 全体(ツールループ含む)が終わるまで再生成・編集・分岐切替は出さない
             {...(running ? {} : { onRegenerate, onSwitchBranch, onEdit })}
