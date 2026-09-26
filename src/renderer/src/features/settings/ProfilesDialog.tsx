@@ -190,7 +190,7 @@ function ProfileForm({
         {test.state !== 'idle' && (
           <span
             className={cn(
-              'pb-1.5 text-xs',
+              'pb-1.5 text-xs whitespace-pre-line',
               test.state === 'ok'
                 ? 'text-emerald-400'
                 : test.state === 'ng'

@@ -60,11 +60,24 @@ export interface ProviderAdapter {
   chat(profile: ServerProfile, req: ChatRequest, signal: AbortSignal): AsyncIterable<ChatEvent>;
 }
 
+export type ProviderErrorCode =
+  | 'refused'
+  | 'dns'
+  | 'timeout'
+  | 'tls'
+  | 'network'
+  | 'unauthorized'
+  | 'not-found'
+  | 'server'
+  | 'http'
+  | 'not-json';
+
 export class ProviderError extends Error {
   constructor(
     message: string,
     readonly status?: number,
     readonly body?: string,
+    readonly code: ProviderErrorCode = 'http',
   ) {
     super(message);
     this.name = 'ProviderError';
