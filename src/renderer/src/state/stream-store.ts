@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { ChatRunEvent, FinishReason, Usage } from '@shared/schemas';
+import type { ChatRunEvent, FinishReason, ToolCall, Usage } from '@shared/schemas';
 
 /**
  * ストリーミング中の assistant メッセージの一時状態。
@@ -17,60 +17,112 @@ export interface StreamState {
   startedAt: number;
 }
 
+export interface ToolActivity {
+  call: ToolCall;
+  status: 'running' | 'done';
+  isError: boolean;
+  durationMs: number | null;
+}
+
+export interface PendingApproval {
+  runId: string;
+  conversationId: string;
+  messageId: string;
+  call: ToolCall;
+}
+
 interface StreamStore {
   streams: Record<string, StreamState>;
   /** conversationId -> runId(実行中のみ) */
   running: Record<string, string>;
+  /** assistant messageId -> 実行中/完了したツール呼び出し */
+  toolActivity: Record<string, Record<string, ToolActivity>>;
+  /** callId -> 承認待ち */
+  approvals: Record<string, PendingApproval>;
   begin: (handle: { runId: string; conversationId: string; assistantMessageId: string }) => void;
   apply: (ev: ChatRunEvent) => void;
   clear: (messageId: string) => void;
+  resolveApproval: (callId: string) => void;
+}
+
+function emptyStream(runId: string, conversationId: string): StreamState {
+  return {
+    runId,
+    conversationId,
+    text: '',
+    reasoning: '',
+    status: 'streaming',
+    finishReason: null,
+    error: null,
+    usage: null,
+    startedAt: Date.now(),
+  };
 }
 
 export const useStreamStore = create<StreamStore>((set) => ({
   streams: {},
   running: {},
+  toolActivity: {},
+  approvals: {},
   begin: ({ runId, conversationId, assistantMessageId }) =>
     set((s) => {
       // invoke の往復中にイベントが先に届いていたら、その状態を尊重する
       const existing = s.streams[assistantMessageId];
       if (existing && existing.runId === runId) {
-        return existing.status === 'streaming'
-          ? { running: { ...s.running, [conversationId]: runId } }
-          : {};
+        return { running: { ...s.running, [conversationId]: runId } };
       }
       return {
-        streams: {
-          ...s.streams,
-          [assistantMessageId]: {
-            runId,
-            conversationId,
-            text: '',
-            reasoning: '',
-            status: 'streaming',
-            finishReason: null,
-            error: null,
-            usage: null,
-            startedAt: Date.now(),
-          },
-        },
+        streams: { ...s.streams, [assistantMessageId]: emptyStream(runId, conversationId) },
         running: { ...s.running, [conversationId]: runId },
       };
     }),
   apply: (ev) =>
     set((s) => {
-      const cur = s.streams[ev.messageId] ?? {
-        runId: ev.runId,
-        conversationId: ev.conversationId,
-        text: '',
-        reasoning: '',
-        status: 'streaming' as const,
-        finishReason: null,
-        error: null,
-        usage: null,
-        startedAt: Date.now(),
-      };
-      const next: StreamState = { ...cur };
       const e = ev.event;
+      const running = { ...s.running };
+      if (e.type === 'run-end') {
+        delete running[ev.conversationId];
+        return { running };
+      }
+      running[ev.conversationId] = ev.runId;
+
+      if (e.type === 'path-changed') return { running };
+
+      if (e.type === 'tool-approval-request') {
+        return {
+          running,
+          approvals: {
+            ...s.approvals,
+            [e.call.id]: {
+              runId: ev.runId,
+              conversationId: ev.conversationId,
+              messageId: ev.messageId,
+              call: e.call,
+            },
+          },
+        };
+      }
+      if (e.type === 'tool-start' || e.type === 'tool-end') {
+        const forMsg = { ...(s.toolActivity[ev.messageId] ?? {}) };
+        if (e.type === 'tool-start') {
+          forMsg[e.call.id] = { call: e.call, status: 'running', isError: false, durationMs: null };
+        } else {
+          const cur = forMsg[e.callId];
+          if (cur)
+            forMsg[e.callId] = {
+              ...cur,
+              status: 'done',
+              isError: e.isError,
+              durationMs: e.durationMs,
+            };
+        }
+        const approvals = { ...s.approvals };
+        if (e.type === 'tool-start') delete approvals[e.call.id];
+        return { running, toolActivity: { ...s.toolActivity, [ev.messageId]: forMsg }, approvals };
+      }
+
+      const cur = s.streams[ev.messageId] ?? emptyStream(ev.runId, ev.conversationId);
+      const next: StreamState = { ...cur };
       if (e.type === 'text-delta') next.text += e.text;
       else if (e.type === 'reasoning-delta') next.reasoning += e.text;
       else if (e.type === 'usage') next.usage = e.usage;
@@ -81,15 +133,20 @@ export const useStreamStore = create<StreamStore>((set) => ({
         next.finishReason = e.finishReason;
         if (next.status !== 'error') next.status = e.finishReason === 'error' ? 'error' : 'done';
       }
-      const running = { ...s.running };
-      if (e.type === 'done') delete running[ev.conversationId];
-      else running[ev.conversationId] = ev.runId;
       return { streams: { ...s.streams, [ev.messageId]: next }, running };
     }),
   clear: (messageId) =>
     set((s) => {
       const streams = { ...s.streams };
       delete streams[messageId];
-      return { streams };
+      const toolActivity = { ...s.toolActivity };
+      delete toolActivity[messageId];
+      return { streams, toolActivity };
+    }),
+  resolveApproval: (callId) =>
+    set((s) => {
+      const approvals = { ...s.approvals };
+      delete approvals[callId];
+      return { approvals };
     }),
 }));

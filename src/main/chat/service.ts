@@ -2,16 +2,23 @@ import type {
   Capabilities,
   ChatEvent,
   ChatRunEvent,
+  FinishReason,
   Message,
   ModelInfo,
   Part,
   ServerProfile,
+  ToolApprovalDecision,
+  ToolCall,
+  ToolMeta,
   Usage,
 } from '@shared/schemas';
 import type { ConversationRepository } from '@main/db/repositories/conversations';
 import type { MessageRepository } from '@main/db/repositories/messages';
 import type { ServerProfileRepository } from '@main/db/repositories/server-profiles';
 import { getAdapter, resolveCapabilities } from '@main/providers';
+import type { ToolRegistry } from '@main/tools/registry';
+import { parseToolArgs } from '@main/tools/registry';
+import type { ToolResult } from '@main/tools/types';
 import { newId } from '@main/util/id';
 import { buildChatRequest, resolveModel } from './message-builder';
 
@@ -19,9 +26,13 @@ export interface ChatServiceDeps {
   profiles: ServerProfileRepository;
   conversations: ConversationRepository;
   messages: MessageRepository;
+  tools: ToolRegistry;
   emit: (event: ChatRunEvent) => void;
+  getSetting?: (key: string) => unknown;
   /** DB への途中保存の間隔(ミリ秒) */
   flushIntervalMs?: number;
+  /** ツール呼び出しループの最大反復回数 */
+  maxToolIterations?: number;
 }
 
 export interface SendInput {
@@ -41,17 +52,24 @@ export interface RunHandle {
 interface ActiveRun {
   controller: AbortController;
   conversationId: string;
-  messageId: string;
   done: Promise<void>;
 }
 
+interface StreamOutcome {
+  finishReason: FinishReason;
+  toolCalls: ToolCall[];
+}
+
 /**
- * 送信 -> ストリーム -> 保存 のオーケストレーション。
- * ツール呼び出しループは M2 で run() に追加する(docs/plan/04-tools-and-mcp.md)。
+ * 送信 -> ストリーム -> (ツール実行 -> 再送)* -> 保存 のオーケストレーション。
+ * 設計は docs/plan/04-tools-and-mcp.md を参照。
  */
 export class ChatService {
   private readonly runs = new Map<string, ActiveRun>();
   private readonly modelInfoCache = new Map<string, ModelInfo | null>();
+  private readonly pendingApprovals = new Map<string, (d: ToolApprovalDecision) => void>();
+  /** 会話単位で「この会話では常に許可」されたツール名 */
+  private readonly conversationAllow = new Map<string, Set<string>>();
 
   constructor(private readonly deps: ChatServiceDeps) {}
 
@@ -94,8 +112,9 @@ export class ChatService {
   async regenerate(messageId: string): Promise<RunHandle> {
     const { conversations, messages } = this.deps;
     const target = messages.get(messageId);
-    if (!target || target.role !== 'assistant')
+    if (!target || target.role !== 'assistant') {
       throw new Error('再生成できるのは assistant メッセージだけです');
+    }
     const conv = conversations.get(target.conversationId);
     if (!conv) throw new Error('会話が見つかりません');
     const profile = this.requireProfile(conv.serverProfileId);
@@ -125,6 +144,14 @@ export class ChatService {
 
   abortAll(): void {
     for (const id of [...this.runs.keys()]) this.abort(id);
+  }
+
+  /** 承認待ちのツール呼び出しに回答する */
+  approve(runId: string, callId: string, decision: ToolApprovalDecision): boolean {
+    const resolve = this.pendingApprovals.get(`${runId}\u0000${callId}`);
+    if (!resolve) return false;
+    resolve(decision);
+    return true;
   }
 
   /** テスト用: 実行中の run の完了を待つ */
@@ -174,7 +201,7 @@ export class ChatService {
         this.runs.delete(runId);
       },
     );
-    this.runs.set(runId, { controller, conversationId, messageId: assistant.id, done });
+    this.runs.set(runId, { controller, conversationId, done });
     return runId;
   }
 
@@ -182,22 +209,15 @@ export class ChatService {
     runId: string,
     conversationId: string,
     profile: ServerProfile,
-    assistant: Message,
+    firstAssistant: Message,
     signal: AbortSignal,
   ): Promise<void> {
-    const { conversations, messages } = this.deps;
+    const { conversations, messages, tools } = this.deps;
+    const maxIterations = this.deps.maxToolIterations ?? 10;
+    const counters = new Map<string, number>();
+    let assistant = firstAssistant;
     const emit = (event: ChatEvent) =>
       this.deps.emit({ runId, conversationId, messageId: assistant.id, event });
-
-    let text = '';
-    let reasoning = '';
-    let usage: Usage | null = null;
-    let lastFlush = Date.now();
-    const flushInterval = this.deps.flushIntervalMs ?? 300;
-    const parts = (): Part[] => [
-      ...(reasoning ? [{ type: 'reasoning' as const, text: reasoning }] : []),
-      ...(text ? [{ type: 'text' as const, text }] : []),
-    ];
 
     try {
       const conv = conversations.get(conversationId);
@@ -205,54 +225,250 @@ export class ChatService {
       const model = resolveModel(conv, profile);
       if (!model) throw new Error('モデルが選択されていません');
       const capabilities = await this.capabilitiesFor(profile, model);
-      const path = messages.pathToRoot(assistant.id).slice(0, -1); // 自分自身(空の assistant)は除く
-      const req = buildChatRequest({ conversation: conv, profile, path, capabilities });
+      const toolDefs = capabilities.tools
+        ? tools.definitionsFor(capabilities, conv.enabledTools)
+        : [];
 
+      for (let iteration = 0; ; iteration++) {
+        const outcome = await this.streamAssistant(
+          assistant,
+          profile,
+          capabilities,
+          toolDefs,
+          signal,
+          emit,
+        );
+        if (outcome.finishReason !== 'tool_calls' || outcome.toolCalls.length === 0) return;
+        if (iteration >= maxIterations - 1) {
+          messages.create({
+            conversationId,
+            parentId: assistant.id,
+            role: 'assistant',
+            kind: 'note',
+            parts: [
+              {
+                type: 'text',
+                text: `ツール呼び出しの上限 (${maxIterations} 回) に達したため停止しました`,
+              },
+            ],
+          });
+          emit({ type: 'path-changed' });
+          return;
+        }
+
+        // --- ツール実行 ---
+        let parentId = assistant.id;
+        for (const call of outcome.toolCalls) {
+          const { toolMsg } = await this.executeToolCall(call, {
+            runId,
+            conversationId,
+            parentId,
+            signal,
+            counters,
+            emit,
+          });
+          parentId = toolMsg.id;
+        }
+
+        // --- 次の assistant セグメント ---
+        assistant = messages.create({
+          conversationId,
+          parentId,
+          role: 'assistant',
+          parts: [],
+          model,
+        });
+        conversations.update(conversationId, { activeLeafId: assistant.id });
+        emit({ type: 'path-changed' });
+      }
+    } catch (e) {
+      const aborted = signal.aborted;
+      const message = aborted ? '' : (e as Error).message;
+      const cur = messages.get(assistant.id);
+      if (cur && cur.finishReason === null) {
+        messages.update(assistant.id, {
+          finishReason: aborted ? 'aborted' : 'error',
+          error: aborted ? null : message,
+        });
+      }
+      if (!aborted) emit({ type: 'error', message });
+      emit({ type: 'done', finishReason: aborted ? 'aborted' : 'error' });
+    } finally {
+      emit({ type: 'run-end' });
+    }
+  }
+
+  /** 1 セグメント分の assistant 応答をストリームして保存する */
+  private async streamAssistant(
+    assistant: Message,
+    profile: ServerProfile,
+    capabilities: Capabilities,
+    toolDefs: ReturnType<ToolRegistry['definitionsFor']>,
+    signal: AbortSignal,
+    emit: (event: ChatEvent) => void,
+  ): Promise<StreamOutcome> {
+    const { conversations, messages } = this.deps;
+    const conv = conversations.get(assistant.conversationId);
+    if (!conv) throw new Error('会話が見つかりません');
+
+    let text = '';
+    let reasoning = '';
+    let usage: Usage | null = null;
+    const toolCalls: ToolCall[] = [];
+    let lastFlush = Date.now();
+    const flushInterval = this.deps.flushIntervalMs ?? 300;
+    const parts = (): Part[] => [
+      ...(reasoning ? [{ type: 'reasoning' as const, text: reasoning }] : []),
+      ...(text ? [{ type: 'text' as const, text }] : []),
+    ];
+    const finish = (finishReason: FinishReason, error: string | null = null): StreamOutcome => {
+      messages.update(assistant.id, {
+        parts: parts(),
+        usage,
+        finishReason,
+        error,
+        toolCalls: toolCalls.length > 0 ? toolCalls : null,
+      });
+      conversations.update(assistant.conversationId, {});
+      return { finishReason, toolCalls };
+    };
+
+    const path = messages.pathToRoot(assistant.id).slice(0, -1); // 自分自身(空の assistant)は除く
+    const req = buildChatRequest({
+      conversation: conv,
+      profile,
+      path,
+      capabilities,
+      tools: toolDefs,
+    });
+
+    try {
       for await (const ev of getAdapter(profile.kind).chat(profile, req, signal)) {
         if (ev.type === 'text-delta') text += ev.text;
         else if (ev.type === 'reasoning-delta') reasoning += ev.text;
         else if (ev.type === 'usage') usage = ev.usage;
+        else if (ev.type === 'tool-call') toolCalls.push(ev.call);
         emit(ev);
         if (ev.type === 'error') {
-          messages.update(assistant.id, {
-            parts: parts(),
-            usage,
-            finishReason: 'error',
-            error: ev.message,
-          });
+          const out = finish('error', ev.message);
           emit({ type: 'done', finishReason: 'error' });
-          return;
+          return out;
         }
-        if (ev.type === 'done') {
-          messages.update(assistant.id, {
-            parts: parts(),
-            usage,
-            finishReason: ev.finishReason,
-            error: null,
-          });
-          conversations.update(conversationId, {});
-          return;
-        }
+        if (ev.type === 'done') return finish(ev.finishReason);
         if (Date.now() - lastFlush > flushInterval) {
           messages.update(assistant.id, { parts: parts() });
           lastFlush = Date.now();
         }
       }
       // done を受け取らずに終了した(接続断など)
-      messages.update(assistant.id, { parts: parts(), usage, finishReason: 'stop' });
+      const out = finish('stop');
       emit({ type: 'done', finishReason: 'stop' });
+      return out;
     } catch (e) {
-      const aborted = signal.aborted;
-      const message = aborted ? '' : (e as Error).message;
-      messages.update(assistant.id, {
-        parts: parts(),
-        usage,
-        finishReason: aborted ? 'aborted' : 'error',
-        error: aborted ? null : message,
-      });
-      if (!aborted) emit({ type: 'error', message });
-      emit({ type: 'done', finishReason: aborted ? 'aborted' : 'error' });
+      // 途中までの本文を残してから上位に投げる
+      messages.update(assistant.id, { parts: parts(), usage });
+      throw e;
     }
+  }
+
+  private async executeToolCall(
+    call: ToolCall,
+    ctx: {
+      runId: string;
+      conversationId: string;
+      parentId: string;
+      signal: AbortSignal;
+      counters: Map<string, number>;
+      emit: (event: ChatEvent) => void;
+    },
+  ): Promise<{ toolMsg: Message; result: ToolResult }> {
+    const { messages, tools } = this.deps;
+    const startedAt = Date.now();
+
+    // 承認
+    const policy = tools.policyFor(call.name);
+    let approval: ToolMeta['approval'] = 'auto';
+    if (policy === 'deny') {
+      approval = 'denied';
+    } else if (
+      policy === 'ask' &&
+      !this.conversationAllow.get(ctx.conversationId)?.has(call.name)
+    ) {
+      ctx.emit({ type: 'tool-approval-request', call });
+      const decision = await this.awaitApproval(ctx.runId, call.id, ctx.signal);
+      if (decision === 'deny') approval = 'denied';
+      else if (decision === 'allow-conversation') {
+        approval = 'approved-conversation';
+        let set = this.conversationAllow.get(ctx.conversationId);
+        if (!set) this.conversationAllow.set(ctx.conversationId, (set = new Set()));
+        set.add(call.name);
+      } else approval = 'approved';
+    }
+
+    let result: ToolResult;
+    ctx.emit({ type: 'tool-start', call });
+    if (approval === 'denied') {
+      result = {
+        text:
+          policy === 'deny'
+            ? 'error: このツールは設定で無効化されています'
+            : 'error: ユーザーが実行を拒否しました',
+        isError: true,
+      };
+    } else {
+      const parsed = parseToolArgs(call.args);
+      if (parsed.error) result = { text: `error: ${parsed.error}`, isError: true };
+      else {
+        result = await tools.execute(call.name, parsed.args, {
+          conversationId: ctx.conversationId,
+          runId: ctx.runId,
+          signal: ctx.signal,
+          counters: ctx.counters,
+          getSetting: this.deps.getSetting ?? (() => null),
+        });
+      }
+    }
+    const durationMs = Date.now() - startedAt;
+    ctx.emit({ type: 'tool-end', callId: call.id, isError: result.isError ?? false, durationMs });
+
+    const meta: ToolMeta = {
+      name: call.name,
+      args: call.args,
+      durationMs,
+      isError: result.isError ?? false,
+      approval,
+    };
+    const toolMsg = messages.create({
+      conversationId: ctx.conversationId,
+      parentId: ctx.parentId,
+      role: 'tool',
+      parts: [{ type: 'text', text: result.text }],
+      toolCallId: call.id,
+      toolMeta: meta,
+    });
+    // result.media の配送(follow-up-user-message 戦略)は M3 で実装する
+    return { toolMsg, result };
+  }
+
+  private awaitApproval(
+    runId: string,
+    callId: string,
+    signal: AbortSignal,
+  ): Promise<ToolApprovalDecision> {
+    const key = `${runId}\u0000${callId}`;
+    return new Promise<ToolApprovalDecision>((resolve, reject) => {
+      const onAbort = () => {
+        this.pendingApprovals.delete(key);
+        reject(signal.reason ?? new Error('aborted'));
+      };
+      if (signal.aborted) return onAbort();
+      signal.addEventListener('abort', onAbort, { once: true });
+      this.pendingApprovals.set(key, (d) => {
+        signal.removeEventListener('abort', onAbort);
+        this.pendingApprovals.delete(key);
+        resolve(d);
+      });
+    });
   }
 }
 

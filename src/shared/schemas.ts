@@ -108,6 +108,30 @@ export const ToolCallSchema = z.object({
 });
 export type ToolCall = z.infer<typeof ToolCallSchema>;
 
+export const ToolPolicySchema = z.enum(['auto', 'ask', 'deny']);
+export type ToolPolicy = z.infer<typeof ToolPolicySchema>;
+
+export const ToolInfoSchema = z.object({
+  name: z.string(),
+  description: z.string(),
+  source: z.enum(['builtin', 'mcp']),
+  policy: ToolPolicySchema,
+});
+export type ToolInfo = z.infer<typeof ToolInfoSchema>;
+
+/** tool メッセージの tool_meta に入れる実行記録 */
+export const ToolMetaSchema = z.object({
+  name: z.string(),
+  args: z.string(),
+  durationMs: z.number(),
+  isError: z.boolean(),
+  approval: z.enum(['auto', 'approved', 'approved-conversation', 'denied']),
+});
+export type ToolMeta = z.infer<typeof ToolMetaSchema>;
+
+export const ToolApprovalDecisionSchema = z.enum(['allow', 'allow-conversation', 'deny']);
+export type ToolApprovalDecision = z.infer<typeof ToolApprovalDecisionSchema>;
+
 export const UsageSchema = z.object({
   promptTokens: z.number().optional(),
   completionTokens: z.number().optional(),
@@ -176,6 +200,20 @@ export const ChatEventSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('usage'), usage: UsageSchema }),
   z.object({ type: z.literal('done'), finishReason: FinishReasonSchema }),
   z.object({ type: z.literal('error'), message: z.string() }),
+  /** ツール承認待ち(renderer は承認カードを出す) */
+  z.object({ type: z.literal('tool-approval-request'), call: ToolCallSchema }),
+  /** ツール実行の開始・終了(UI の進行表示用) */
+  z.object({ type: z.literal('tool-start'), call: ToolCallSchema }),
+  z.object({
+    type: z.literal('tool-end'),
+    callId: z.string(),
+    isError: z.boolean(),
+    durationMs: z.number(),
+  }),
+  /** メッセージツリーが変わった(tool メッセージや次の assistant を追加した)ので path を再取得せよ */
+  z.object({ type: z.literal('path-changed') }),
+  /** run 全体の終了(ツールループを含む)。done はセグメント単位なので別に流す */
+  z.object({ type: z.literal('run-end') }),
 ]);
 export type ChatEvent = z.infer<typeof ChatEventSchema>;
 

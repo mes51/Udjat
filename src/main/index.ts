@@ -8,6 +8,9 @@ import { ServerProfileRepository } from './db/repositories/server-profiles';
 import { registerIpcHandlers } from './ipc/handlers';
 import { broadcastIpcEvent } from './ipc/register';
 import { initPaths } from './paths';
+import { SettingsRepository } from './settings/repository';
+import { registerBuiltinTools } from './tools/builtin';
+import { ToolRegistry } from './tools/registry';
 
 // userData の差し替えは whenReady より前に行う必要がある。
 const paths = initPaths();
@@ -65,13 +68,18 @@ if (!app.requestSingleInstanceLock()) {
     const profiles = new ServerProfileRepository(db);
     const conversations = new ConversationRepository(db);
     const messages = new MessageRepository(db);
+    const settings = new SettingsRepository(db);
+    const tools = new ToolRegistry(db);
+    registerBuiltinTools(tools);
     chat = new ChatService({
       profiles,
       conversations,
       messages,
+      tools,
       emit: (ev) => broadcastIpcEvent('chat:event', ev),
+      getSetting: (key) => settings.get(key),
     });
-    registerIpcHandlers({ db, paths, profiles, conversations, messages, chat });
+    registerIpcHandlers({ db, paths, profiles, conversations, messages, chat, tools });
     mainWindow = createWindow();
 
     app.on('activate', () => {

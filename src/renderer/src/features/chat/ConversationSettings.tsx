@@ -2,7 +2,7 @@ import { useState } from 'react';
 import type { ChatParams, Conversation } from '@shared/schemas';
 import { Button } from '@renderer/components/ui/button';
 import { Field, Input, Select, Textarea } from '@renderer/components/ui/input';
-import { useCapabilities, useConversationMutations } from '@renderer/lib/queries';
+import { useCapabilities, useConversationMutations, useTools } from '@renderer/lib/queries';
 
 type NumKey =
   | 'temperature'
@@ -136,6 +136,61 @@ export function ConversationSettings({ conversation }: { conversation: Conversat
         </Button>
       </div>
       {update.isError && <p className="text-xs text-red-400">{String(update.error)}</p>}
+      <ConversationTools conversation={conversation} />
+    </div>
+  );
+}
+
+/** この会話で使うツールの選択(null = 全部)。切り替えは即保存する */
+function ConversationTools({ conversation }: { conversation: Conversation }) {
+  const tools = useTools();
+  const caps = useCapabilities(conversation.serverProfileId, conversation.model);
+  const { update } = useConversationMutations();
+  const all = tools.data ?? [];
+  const enabled = conversation.enabledTools;
+  const isOn = (name: string) => enabled === null || enabled.includes(name);
+
+  const toggle = (name: string) => {
+    const current = enabled ?? all.map((t) => t.name);
+    const next = current.includes(name) ? current.filter((n) => n !== name) : [...current, name];
+    const allOn = all.every((t) => next.includes(t.name));
+    update.mutate({ id: conversation.id, patch: { enabledTools: allOn ? null : next } });
+  };
+
+  return (
+    <div className="border-border mt-2 border-t pt-3">
+      <div className="mb-1 flex items-center justify-between">
+        <h4 className="text-xs font-medium">この会話で使うツール</h4>
+        {enabled !== null && (
+          <button
+            type="button"
+            className="text-accent text-[11px]"
+            onClick={() => update.mutate({ id: conversation.id, patch: { enabledTools: null } })}
+          >
+            すべて有効にする
+          </button>
+        )}
+      </div>
+      {caps.data && !caps.data.tools && (
+        <p className="text-fg-muted mb-1 text-[11px]">
+          このモデルはツール呼び出し非対応と推定されています
+        </p>
+      )}
+      <div className="flex flex-col gap-1">
+        {all.map((t) => (
+          <label key={t.name} className="flex items-center gap-2 text-xs">
+            <input
+              type="checkbox"
+              checked={isOn(t.name)}
+              disabled={t.policy === 'deny'}
+              onChange={() => toggle(t.name)}
+            />
+            <span className="font-mono">{t.name}</span>
+            {t.policy === 'deny' && <span className="text-fg-muted">(設定で無効)</span>}
+            {t.policy === 'ask' && <span className="text-fg-muted">(毎回確認)</span>}
+          </label>
+        ))}
+      </div>
     </div>
   );
 }

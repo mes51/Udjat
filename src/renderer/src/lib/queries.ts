@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import type { ConversationPatch, ServerProfileInput } from '@shared/schemas';
+import type { ConversationPatch, ServerProfileInput, ToolPolicy } from '@shared/schemas';
 import { invoke } from './ipc';
 
 export const keys = {
@@ -9,6 +9,8 @@ export const keys = {
   conversations: ['conversations'] as const,
   conversation: (id: string) => ['conversation', id] as const,
   path: (id: string) => ['messages:path', id] as const,
+  tools: ['tools'] as const,
+  setting: (key: string) => ['setting', key] as const,
 };
 
 export function useProfiles() {
@@ -52,6 +54,33 @@ export function useMessagePath(conversationId: string | null) {
     queryKey: keys.path(conversationId ?? ''),
     queryFn: () => invoke('messages:path', { conversationId: conversationId! }),
     enabled: !!conversationId,
+  });
+}
+
+export function useTools() {
+  return useQuery({ queryKey: keys.tools, queryFn: () => invoke('tools:list') });
+}
+
+export function useToolPolicyMutation() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (v: { name: string; policy: ToolPolicy | null }) => invoke('tools:setPolicy', v),
+    onSuccess: () => qc.invalidateQueries({ queryKey: keys.tools }),
+  });
+}
+
+export function useSetting<T = unknown>(key: string) {
+  return useQuery({
+    queryKey: keys.setting(key),
+    queryFn: async () => (await invoke('settings:get', { key })) as T | null,
+  });
+}
+
+export function useSettingMutation() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (v: { key: string; value: unknown }) => invoke('settings:set', v),
+    onSuccess: (_r, v) => qc.invalidateQueries({ queryKey: keys.setting(v.key) }),
   });
 }
 

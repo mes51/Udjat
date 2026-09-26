@@ -29,7 +29,10 @@ export function MessageList({
     if (stickToBottom.current) bottomRef.current?.scrollIntoView({ block: 'end' });
   }, [messages, streamingText]);
 
-  const lastAssistantId = [...messages].reverse().find((m) => m.role === 'assistant')?.id;
+  const visible = messages.filter((m) => m.kind !== 'tool-media');
+  const lastAssistantId = [...visible]
+    .reverse()
+    .find((m) => m.role === 'assistant' && m.kind === 'normal')?.id;
 
   return (
     <div ref={containerRef} onScroll={onScroll} className="min-h-0 flex-1 overflow-y-auto">
@@ -39,7 +42,7 @@ export function MessageList({
             メッセージを送って会話を始めましょう。
           </div>
         )}
-        {messages.map((m) => (
+        {visible.map((m) => (
           <MessageItem
             key={m.id}
             message={m}

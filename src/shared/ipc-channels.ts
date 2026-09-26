@@ -28,6 +28,9 @@ export const IPC_INVOKE_CHANNELS = [
   'chat:regenerate',
   'chat:abort',
   'chat:running',
+  'tools:list',
+  'tools:setPolicy',
+  'tools:approve',
 ] as const;
 
 /** main -> renderer の一方向イベントチャネル */

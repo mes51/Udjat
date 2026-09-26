@@ -17,6 +17,7 @@ import { invoke } from '@renderer/lib/ipc';
 import { useProfileMutations, useProfiles } from '@renderer/lib/queries';
 import { cn } from '@renderer/lib/utils';
 import { useUiStore } from '@renderer/state/ui-store';
+import { ToolsSettings } from './ToolsSettings';
 
 const DEFAULT_URLS: Record<ServerKind, string> = {
   ollama: 'http://192.168.1.10:11434',
@@ -255,6 +256,8 @@ export function ProfilesDialog() {
     if (open) void invoke('app:info').then(setInfo);
   }, [open]);
 
+  const [tab, setTab] = useState<'servers' | 'tools'>('servers');
+
   // 未選択なら先頭のプロファイル、無ければ新規フォーム
   const effectiveId: string | 'new' = selectedId ?? profiles.data?.[0]?.id ?? 'new';
   const selected =
@@ -264,10 +267,35 @@ export function ProfilesDialog() {
     <Dialog
       open={open}
       onOpenChange={setOpen}
-      title="サーバープロファイル"
-      description="接続先の LLM サーバーを登録します"
+      title="設定"
+      description={
+        tab === 'servers'
+          ? '接続先の LLM サーバーを登録します'
+          : 'ツールの承認ポリシーと Web 検索の設定'
+      }
     >
-      <div className="flex gap-4">
+      <div className="border-border mb-4 flex gap-1 border-b">
+        {(
+          [
+            ['servers', 'サーバー'],
+            ['tools', 'ツール'],
+          ] as const
+        ).map(([id, label]) => (
+          <button
+            key={id}
+            type="button"
+            onClick={() => setTab(id)}
+            className={cn(
+              'text-fg-muted hover:text-fg -mb-px border-b-2 border-transparent px-3 py-1.5 text-sm',
+              tab === id && 'border-accent text-fg',
+            )}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      {tab === 'tools' && <ToolsSettings />}
+      <div className={cn('flex gap-4', tab !== 'servers' && 'hidden')}>
         <div className="w-52 shrink-0">
           {profiles.data?.map((p) => (
             <button

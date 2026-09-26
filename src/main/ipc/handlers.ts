@@ -1,6 +1,7 @@
 import { app } from 'electron';
 import type { ServerProfile, ServerProfileInput } from '@shared/schemas';
 import type { ChatService } from '@main/chat/service';
+import type { ToolRegistry } from '@main/tools/registry';
 import type { Database } from '@main/db/client';
 import { sqliteVersion } from '@main/db/client';
 import type { ConversationRepository } from '@main/db/repositories/conversations';
@@ -18,6 +19,7 @@ export interface AppContext {
   conversations: ConversationRepository;
   messages: MessageRepository;
   chat: ChatService;
+  tools: ToolRegistry;
 }
 
 export function registerIpcHandlers(ctx: AppContext): void {
@@ -113,6 +115,16 @@ export function registerIpcHandlers(ctx: AppContext): void {
   handleIpc('chat:regenerate', ({ messageId }) => ctx.chat.regenerate(messageId));
   handleIpc('chat:abort', ({ runId }) => ctx.chat.abort(runId));
   handleIpc('chat:running', ({ conversationId }) => ctx.chat.isRunning(conversationId));
+
+  // --- ツール ---
+  handleIpc('tools:list', () => ctx.tools.list());
+  handleIpc('tools:setPolicy', ({ name, policy }) => {
+    ctx.tools.setPolicy(name, policy);
+    return undefined;
+  });
+  handleIpc('tools:approve', ({ runId, callId, decision }) =>
+    ctx.chat.approve(runId, callId, decision),
+  );
 }
 
 function tempProfile(input: ServerProfileInput): ServerProfile {

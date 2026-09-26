@@ -25,6 +25,8 @@ export interface CanonicalMessage {
   video?: CanonicalMedia[];
   toolCalls?: ToolCall[];
   toolCallId?: string;
+  /** role: tool の時の関数名(Ollama は id ではなく名前で対応付ける) */
+  name?: string;
 }
 
 export interface ToolDefinition {

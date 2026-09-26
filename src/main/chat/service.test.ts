@@ -5,6 +5,7 @@ import { ConversationRepository } from '@main/db/repositories/conversations';
 import { MessageRepository } from '@main/db/repositories/messages';
 import { ServerProfileRepository } from '@main/db/repositories/server-profiles';
 import { json, ndjson, sse, startMockServer, type MockServer } from '@main/providers/test-server';
+import { ToolRegistry } from '@main/tools/registry';
 import { ChatService } from './service';
 
 let db: Database;
@@ -25,6 +26,7 @@ beforeEach(() => {
     profiles,
     conversations,
     messages,
+    tools: new ToolRegistry(db),
     emit: (e) => events.push(e),
     flushIntervalMs: 0,
   });
@@ -76,6 +78,7 @@ describe('ChatService', () => {
       'text-delta',
       'usage',
       'done',
+      'run-end',
     ]);
     expect(
       events.every((e) => e.runId === run.runId && e.messageId === run.assistantMessageId),
@@ -170,7 +173,7 @@ describe('ChatService', () => {
     const c = conversations.create({ serverProfileId: p.id, model: null });
     const run = await service.send({ conversationId: c.id, text: 'x' });
     await service.waitFor(run.runId);
-    expect(events.map((e) => e.event.type)).toEqual(['error', 'done']);
+    expect(events.map((e) => e.event.type)).toEqual(['error', 'done', 'run-end']);
     const a = messages.get(run.assistantMessageId)!;
     expect(a.finishReason).toBe('error');
     expect(a.error).toMatch(/500.*model not loaded/);
@@ -207,7 +210,8 @@ describe('ChatService', () => {
     const a = messages.get(run.assistantMessageId)!;
     expect(a.parts).toEqual([{ type: 'text', text: 'partial' }]);
     expect(a.finishReason).toBe('aborted');
-    expect(events.at(-1)?.event).toEqual({ type: 'done', finishReason: 'aborted' });
+    expect(events.at(-2)?.event).toEqual({ type: 'done', finishReason: 'aborted' });
+    expect(events.at(-1)?.event).toEqual({ type: 'run-end' });
     expect(service.isRunning(c.id)).toBeNull();
   });
 });

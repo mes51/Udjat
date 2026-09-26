@@ -65,6 +65,8 @@ function toCanonical(m: Message, sendReasoning: boolean): CanonicalMessage {
   if (sendReasoning && reasoning.length > 0) cm.reasoning = reasoning.join('\n');
   if (m.toolCalls && m.toolCalls.length > 0) cm.toolCalls = m.toolCalls;
   if (m.toolCallId) cm.toolCallId = m.toolCallId;
+  const toolName = (m.toolMeta as { name?: unknown } | null)?.name;
+  if (m.role === 'tool' && typeof toolName === 'string') cm.name = toolName;
   return cm;
 }
 

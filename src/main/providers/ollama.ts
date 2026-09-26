@@ -42,7 +42,7 @@ function toOllamaMessages(messages: CanonicalMessage[]): OllamaMessage[] {
         function: { name: c.name, arguments: safeParseArgs(c.args) },
       }));
     }
-    if (m.role === 'tool' && m.toolCallId) out.tool_name = m.toolCallId;
+    if (m.role === 'tool' && m.name) out.tool_name = m.name;
     return out;
   });
 }

@@ -5,16 +5,21 @@ import { keys } from './queries';
 
 /**
  * main からの chat:event を購読して stream-store に流し込む。
- * done を受けたら DB を正として再取得し、少し待ってから一時状態を捨てる。
+ * - done: そのセグメントの assistant が確定したので path を再取得し、少し待って一時状態を捨てる
+ * - path-changed: tool メッセージや次の assistant が追加されたので path を再取得
+ * - run-end: 会話一覧(更新時刻)を更新
  */
 export function subscribeChatEvents(qc: QueryClient): () => void {
   return onEvent('chat:event', (ev) => {
     useStreamStore.getState().apply(ev);
-    if (ev.event.type === 'done') {
+    const t = ev.event.type;
+    if (t === 'done' || t === 'path-changed') {
       void qc.invalidateQueries({ queryKey: keys.path(ev.conversationId) }).then(() => {
-        // 再取得後に一時状態を消す(消すのが早いと一瞬空になる)
-        setTimeout(() => useStreamStore.getState().clear(ev.messageId), 50);
+        if (t === 'done') setTimeout(() => useStreamStore.getState().clear(ev.messageId), 50);
       });
+    }
+    if (t === 'run-end') {
+      void qc.invalidateQueries({ queryKey: keys.path(ev.conversationId) });
       void qc.invalidateQueries({ queryKey: keys.conversations });
     }
   });

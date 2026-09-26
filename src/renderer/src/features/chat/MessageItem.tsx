@@ -1,11 +1,12 @@
 import { Collapsible } from 'radix-ui';
-import { AlertCircle, Bot, Brain, ChevronRight, RefreshCw, User } from 'lucide-react';
+import { AlertCircle, Bot, Brain, ChevronRight, Info, RefreshCw, User } from 'lucide-react';
 import { useState } from 'react';
 import type { Message, Usage } from '@shared/schemas';
 import { Button } from '@renderer/components/ui/button';
 import { cn, formatDuration } from '@renderer/lib/utils';
-import type { StreamState } from '@renderer/state/stream-store';
+import { useStreamStore, type StreamState } from '@renderer/state/stream-store';
 import { Markdown } from './Markdown';
+import { ApprovalCard, ToolCallList, ToolResultCard } from './ToolBlocks';
 
 export interface MessageItemProps {
   message: Message;
@@ -79,11 +80,27 @@ function UsageLine({ usage, model }: { usage: Usage | null; model: string | null
 }
 
 export function MessageItem({ message, stream, isLastAssistant, onRegenerate }: MessageItemProps) {
+  const approvals = useStreamStore((s) => s.approvals);
+  if (message.role === 'tool') return <ToolResultCard message={message} />;
+  if (message.kind === 'note') {
+    return (
+      <div className="text-fg-muted flex items-center gap-1.5 px-4 py-1 pl-14 text-xs">
+        <Info size={13} />
+        {message.parts
+          .filter((p) => p.type === 'text')
+          .map((p) => p.text)
+          .join('\n')}
+      </div>
+    );
+  }
+
   const isUser = message.role === 'user';
   const streaming = stream?.status === 'streaming';
   const { text, reasoning } = pickText(message, stream);
   const error = stream?.error ?? message.error;
   const finish = stream?.finishReason ?? message.finishReason;
+  const toolCalls = message.toolCalls ?? [];
+  const pendingForThis = Object.values(approvals).filter((a) => a.messageId === message.id);
 
   return (
     <div className={cn('group flex gap-3 px-4 py-3', isUser && 'bg-surface-2/40')}>
@@ -107,6 +124,10 @@ export function MessageItem({ message, stream, isLastAssistant, onRegenerate }: 
         {streaming && text && (
           <span className="bg-fg ml-0.5 inline-block h-4 w-1.5 animate-pulse align-text-bottom" />
         )}
+        {toolCalls.length > 0 && <ToolCallList calls={toolCalls} messageId={message.id} />}
+        {pendingForThis.map((a) => (
+          <ApprovalCard key={a.call.id} callId={a.call.id} />
+        ))}
         {error && (
           <div className="mt-2 flex items-start gap-1.5 rounded-md border border-red-500/30 bg-red-500/10 px-2.5 py-1.5 text-xs text-red-300">
             <AlertCircle size={14} className="mt-0.5 shrink-0" />
@@ -119,7 +140,7 @@ export function MessageItem({ message, stream, isLastAssistant, onRegenerate }: 
         {finish === 'length' && (
           <div className="text-fg-muted mt-1 text-[11px]">最大トークン数に達しました</div>
         )}
-        {!isUser && !streaming && (
+        {!isUser && !streaming && finish !== 'tool_calls' && (
           <UsageLine usage={stream?.usage ?? message.usage} model={message.model} />
         )}
         {!isUser && !streaming && isLastAssistant && onRegenerate && (

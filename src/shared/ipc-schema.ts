@@ -9,6 +9,9 @@ import {
   ModelInfoSchema,
   ServerProfileInputSchema,
   ServerProfileSchema,
+  ToolApprovalDecisionSchema,
+  ToolInfoSchema,
+  ToolPolicySchema,
 } from './schemas';
 
 /**
@@ -119,6 +122,20 @@ export const ipcInvokeSchema = {
   'chat:running': {
     input: z.object({ conversationId: z.string().min(1) }),
     output: z.string().nullable(),
+  },
+
+  'tools:list': { input: z.undefined(), output: z.array(ToolInfoSchema) },
+  'tools:setPolicy': {
+    input: z.object({ name: z.string().min(1), policy: ToolPolicySchema.nullable() }),
+    output: z.undefined(),
+  },
+  'tools:approve': {
+    input: z.object({
+      runId: z.string().min(1),
+      callId: z.string().min(1),
+      decision: ToolApprovalDecisionSchema,
+    }),
+    output: z.boolean(),
   },
 } as const satisfies Record<IpcInvokeChannel, { input: z.ZodType; output: z.ZodType }>;
 
