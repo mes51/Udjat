@@ -1,5 +1,6 @@
 import { useQueryClient } from '@tanstack/react-query';
-import { Loader2, RefreshCw, SlidersHorizontal } from 'lucide-react';
+import { Download, Loader2, RefreshCw, SlidersHorizontal } from 'lucide-react';
+import { DropdownMenu } from 'radix-ui';
 import { useCallback, useRef, useState, type DragEvent } from 'react';
 import type { AttachmentRef } from '@shared/schemas';
 import { Button } from '@renderer/components/ui/button';
@@ -7,7 +8,9 @@ import { Select } from '@renderer/components/ui/input';
 import { addFile } from '@renderer/lib/attachments';
 import { invoke } from '@renderer/lib/ipc';
 import {
+  invalidateConversationView,
   keys,
+  useBranches,
   useCapabilities,
   useConversation,
   useConversationMutations,
@@ -35,6 +38,8 @@ export function ChatPane({ conversationId }: { conversationId: string }) {
   const settingsOpen = useUiStore((s) => s.conversationSettingsOpen);
   const setSettingsOpen = useUiStore((s) => s.setConversationSettingsOpen);
   const [sendError, setSendError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const branches = useBranches(conversationId);
   const [pending, setPendingState] = useState<PendingAttachment[]>([]);
   const [dragging, setDragging] = useState(false);
   const dragDepth = useRef(0);
@@ -84,7 +89,7 @@ export function ChatPane({ conversationId }: { conversationId: string }) {
     try {
       const handle = await invoke('chat:send', { conversationId, text, attachments });
       begin(handle);
-      await qc.invalidateQueries({ queryKey: keys.path(conversationId) });
+      await invalidateConversationView(qc, conversationId);
       await qc.invalidateQueries({ queryKey: keys.conversations });
     } catch (e) {
       setSendError((e as Error).message);
@@ -96,7 +101,43 @@ export function ChatPane({ conversationId }: { conversationId: string }) {
     try {
       const handle = await invoke('chat:regenerate', { messageId });
       begin(handle);
-      await qc.invalidateQueries({ queryKey: keys.path(conversationId) });
+      await invalidateConversationView(qc, conversationId);
+    } catch (e) {
+      setSendError((e as Error).message);
+    }
+  };
+
+  const edit = async (messageId: string, text: string) => {
+    setSendError(null);
+    try {
+      const handle = await invoke('chat:edit', { messageId, text });
+      begin(handle);
+      await invalidateConversationView(qc, conversationId);
+    } catch (e) {
+      setSendError((e as Error).message);
+    }
+  };
+
+  const switchBranch = async (messageId: string) => {
+    setSendError(null);
+    try {
+      const conv = await invoke('messages:switchBranch', { conversationId, messageId });
+      qc.setQueryData(keys.conversation(conversationId), conv);
+      await invalidateConversationView(qc, conversationId);
+    } catch (e) {
+      setSendError((e as Error).message);
+    }
+  };
+
+  const exportAs = async (format: 'markdown' | 'json') => {
+    setSendError(null);
+    try {
+      const { fileName, content } = await invoke('conversations:export', {
+        id: conversationId,
+        format,
+      });
+      const saved = await invoke('files:save', { fileName, content });
+      if (saved) setNotice(`保存しました: ${saved}`);
     } catch (e) {
       setSendError((e as Error).message);
     }
@@ -176,6 +217,33 @@ export function ChatPane({ conversationId }: { conversationId: string }) {
             </span>
           )}
           <div className="flex-1" />
+          <DropdownMenu.Root>
+            <DropdownMenu.Trigger asChild>
+              <Button variant="ghost" size="icon" aria-label="エクスポート">
+                <Download size={16} />
+              </Button>
+            </DropdownMenu.Trigger>
+            <DropdownMenu.Portal>
+              <DropdownMenu.Content
+                align="end"
+                sideOffset={4}
+                className="border-border bg-surface-2 z-50 min-w-44 rounded-md border p-1 text-sm shadow-lg"
+              >
+                <DropdownMenu.Item
+                  className="hover:bg-surface-3 cursor-pointer rounded px-2 py-1.5 outline-none"
+                  onSelect={() => void exportAs('markdown')}
+                >
+                  Markdown で保存(表示中の分岐)
+                </DropdownMenu.Item>
+                <DropdownMenu.Item
+                  className="hover:bg-surface-3 cursor-pointer rounded px-2 py-1.5 outline-none"
+                  onSelect={() => void exportAs('json')}
+                >
+                  JSON で保存(全分岐)
+                </DropdownMenu.Item>
+              </DropdownMenu.Content>
+            </DropdownMenu.Portal>
+          </DropdownMenu.Root>
           <Button
             variant="ghost"
             size="icon"
@@ -189,9 +257,20 @@ export function ChatPane({ conversationId }: { conversationId: string }) {
         <MessageList
           conversationId={conversationId}
           messages={path.data ?? []}
+          branches={branches.data ?? {}}
           onRegenerate={(id) => void regenerate(id)}
+          onSwitchBranch={(id) => void switchBranch(id)}
+          onEdit={(id, text) => void edit(id, text)}
         />
         {sendError && <div className="px-4 py-1 text-xs text-red-400">{sendError}</div>}
+        {notice && (
+          <div className="text-fg-muted flex items-center gap-2 px-4 py-1 text-xs">
+            <span className="truncate">{notice}</span>
+            <button type="button" className="hover:text-fg" onClick={() => setNotice(null)}>
+              閉じる
+            </button>
+          </div>
+        )}
         <Composer
           disabled={!canSend}
           running={!!runningRunId}

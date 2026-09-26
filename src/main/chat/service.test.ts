@@ -10,6 +10,7 @@ import { ChatService } from './service';
 
 let db: Database;
 let server: MockServer | null = null;
+let autoTitle = false;
 let events: ChatRunEvent[];
 let service: ChatService;
 let profiles: ServerProfileRepository;
@@ -29,6 +30,7 @@ beforeEach(() => {
     tools: new ToolRegistry(db),
     emit: (e) => events.push(e),
     flushIntervalMs: 0,
+    getSetting: (k) => (k === 'titles.auto' ? autoTitle : null),
   });
 });
 
@@ -36,6 +38,71 @@ afterEach(async () => {
   await server?.close();
   server = null;
   db.close();
+  autoTitle = false;
+});
+
+describe('ChatService title generation', () => {
+  it('asks the model for a short title after the first exchange and edits user messages as siblings', async () => {
+    autoTitle = true;
+    server = await startMockServer({
+      'POST /v1/chat/completions': (_r, body, res) => {
+        const msgs = (body as { messages: { content: string }[] }).messages;
+        const isTitle = msgs[0]?.content.includes('short title');
+        sse(res, [
+          {
+            choices: [
+              {
+                delta: { content: isTitle ? '「天気の質問」。\n' : '晴れです' },
+                finish_reason: 'stop',
+              },
+            ],
+          },
+        ]);
+      },
+    });
+    const p = profiles.create({
+      name: 'l',
+      kind: 'llamacpp',
+      baseUrl: server.url,
+      apiKey: null,
+      defaultModel: 'm',
+      defaultParams: {},
+      capabilityOverrides: {},
+    });
+    const c = conversations.create({ serverProfileId: p.id, model: null });
+    const r1 = await service.send({ conversationId: c.id, text: '今日の天気は?' });
+    await service.waitFor(r1.runId);
+    expect(conversations.get(c.id)!.title).toBe('天気の質問');
+    // タイトル生成のリクエストは think を切り、短い max_tokens で送る
+    const titleReq = server.requests.find((r) => JSON.stringify(r.body).includes('short title'))!
+      .body as Record<string, unknown>;
+    expect(titleReq).toMatchObject({ max_tokens: 48, reasoning_budget: 0 });
+
+    // 2 往復目以降はタイトルを付け直さない
+    const r2 = await service.send({ conversationId: c.id, text: '明日は?' });
+    await service.waitFor(r2.runId);
+    expect(
+      server.requests.filter((r) => JSON.stringify(r.body).includes('short title')),
+    ).toHaveLength(1);
+
+    // 編集: 元のユーザー発言と同じ親の下に新しい分岐
+    const before = messages.pathToRoot(conversations.get(c.id)!.activeLeafId!);
+    const r3 = await service.edit(before[2]!.id, '明後日は?');
+    await service.waitFor(r3.runId);
+    const after = messages.pathToRoot(conversations.get(c.id)!.activeLeafId!);
+    expect(after.map((m) => (m.parts[0] as { text: string }).text)).toEqual([
+      '今日の天気は?',
+      '晴れです',
+      '明後日は?',
+      '晴れです',
+    ]);
+    expect(messages.get(r3.userMessageId!)!.parentId).toBe(before[2]!.parentId);
+    expect(messages.branches(after)[after[2]!.id]).toEqual({
+      index: 1,
+      count: 2,
+      ids: [before[2]!.id, after[2]!.id],
+    });
+  });
 });
 
 describe('ChatService', () => {

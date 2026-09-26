@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import type { ConversationPatch, ServerProfileInput, ToolPolicy } from '@shared/schemas';
 import { invoke } from './ipc';
 
@@ -9,6 +9,8 @@ export const keys = {
   conversations: ['conversations'] as const,
   conversation: (id: string) => ['conversation', id] as const,
   path: (id: string) => ['messages:path', id] as const,
+  branches: (id: string) => ['messages:branches', id] as const,
+  search: (q: string) => ['messages:search', q] as const,
   tools: ['tools'] as const,
   setting: (key: string) => ['setting', key] as const,
 };
@@ -55,6 +57,32 @@ export function useMessagePath(conversationId: string | null) {
     queryFn: () => invoke('messages:path', { conversationId: conversationId! }),
     enabled: !!conversationId,
   });
+}
+
+export function useBranches(conversationId: string | null) {
+  return useQuery({
+    queryKey: keys.branches(conversationId ?? ''),
+    queryFn: () => invoke('messages:branches', { conversationId: conversationId! }),
+    enabled: !!conversationId,
+  });
+}
+
+export function useSearch(query: string) {
+  const q = query.trim();
+  return useQuery({
+    queryKey: keys.search(q),
+    queryFn: () => invoke('messages:search', { query: q, limit: 100 }),
+    enabled: q.length > 0,
+    staleTime: 10_000,
+  });
+}
+
+/** path と分岐情報をまとめて再取得する */
+export function invalidateConversationView(qc: QueryClient, conversationId: string): Promise<void> {
+  return Promise.all([
+    qc.invalidateQueries({ queryKey: keys.path(conversationId) }),
+    qc.invalidateQueries({ queryKey: keys.branches(conversationId) }),
+  ]).then(() => undefined);
 }
 
 export function useTools() {

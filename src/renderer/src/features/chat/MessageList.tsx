@@ -1,19 +1,28 @@
 import { useEffect, useRef } from 'react';
 import type { Message } from '@shared/schemas';
 import { useStreamStore } from '@renderer/state/stream-store';
-import { MessageItem } from './MessageItem';
+import { useUiStore } from '@renderer/state/ui-store';
+import { MessageItem, type BranchInfo } from './MessageItem';
 
 export function MessageList({
   conversationId,
   messages,
+  branches,
   onRegenerate,
+  onSwitchBranch,
+  onEdit,
 }: {
   conversationId: string;
   messages: Message[];
+  branches: Record<string, BranchInfo>;
   onRegenerate: (messageId: string) => void;
+  onSwitchBranch: (messageId: string) => void;
+  onEdit: (messageId: string, text: string) => void;
 }) {
   const streams = useStreamStore((s) => s.streams);
   const running = useStreamStore((s) => !!s.running[conversationId]);
+  const scrollTarget = useUiStore((s) => s.scrollTarget);
+  const setScrollTarget = useUiStore((s) => s.setScrollTarget);
   const bottomRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const stickToBottom = useRef(true);
@@ -32,8 +41,20 @@ export function MessageList({
     if (stickToBottom.current) bottomRef.current?.scrollIntoView({ block: 'end' });
   }, [messages, streamingText]);
 
-  const visible = messages;
-  const lastAssistantId = [...visible]
+  // 検索結果などから指定されたメッセージへスクロールし、しばらく強調する
+  const highlightedId =
+    scrollTarget?.conversationId === conversationId ? scrollTarget.messageId : null;
+  useEffect(() => {
+    if (!highlightedId) return;
+    const el = document.getElementById(`msg-${highlightedId}`);
+    if (!el) return;
+    stickToBottom.current = false;
+    el.scrollIntoView({ block: 'center' });
+    const t = setTimeout(() => setScrollTarget(null), 2500);
+    return () => clearTimeout(t);
+  }, [highlightedId, messages, setScrollTarget]);
+
+  const lastAssistantId = [...messages]
     .reverse()
     .find((m) => m.role === 'assistant' && m.kind === 'normal')?.id;
 
@@ -45,14 +66,16 @@ export function MessageList({
             メッセージを送って会話を始めましょう。
           </div>
         )}
-        {visible.map((m) => (
+        {messages.map((m) => (
           <MessageItem
             key={m.id}
             message={m}
             stream={streams[m.id]}
             isLastAssistant={m.id === lastAssistantId}
-            // run 全体(ツールループ含む)が終わるまで再生成は出さない
-            {...(running ? {} : { onRegenerate })}
+            branch={branches[m.id]}
+            highlighted={m.id === highlightedId}
+            // run 全体(ツールループ含む)が終わるまで再生成・編集・分岐切替は出さない
+            {...(running ? {} : { onRegenerate, onSwitchBranch, onEdit })}
           />
         ))}
         <div ref={bottomRef} />

@@ -1,8 +1,20 @@
 import { Collapsible } from 'radix-ui';
-import { AlertCircle, Bot, Brain, ChevronRight, Images, Info, RefreshCw, User } from 'lucide-react';
+import {
+  AlertCircle,
+  Bot,
+  Brain,
+  ChevronLeft,
+  ChevronRight,
+  Images,
+  Info,
+  Pencil,
+  RefreshCw,
+  Send,
+  User,
+} from 'lucide-react';
 import { mediaUrl } from '@renderer/lib/attachments';
 import { PartMedia } from './AttachmentChips';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import type { Message, Part, Usage } from '@shared/schemas';
 import { Button } from '@renderer/components/ui/button';
 import { cn, formatDuration } from '@renderer/lib/utils';
@@ -10,11 +22,110 @@ import { useStreamStore, type StreamState } from '@renderer/state/stream-store';
 import { Markdown } from './Markdown';
 import { ApprovalCard, ToolCallList, ToolResultCard } from './ToolBlocks';
 
+export interface BranchInfo {
+  index: number;
+  count: number;
+  ids: string[];
+}
+
 export interface MessageItemProps {
   message: Message;
   stream?: StreamState | undefined;
   isLastAssistant: boolean;
+  branch?: BranchInfo | undefined;
+  highlighted?: boolean;
   onRegenerate?: (messageId: string) => void;
+  onSwitchBranch?: (messageId: string) => void;
+  /** ユーザー発言の編集(新しい分岐として送り直す)。undefined なら編集不可(生成中など) */
+  onEdit?: (messageId: string, text: string) => void;
+}
+
+/** 兄弟分岐の切り替え `< 2/3 >` */
+function BranchNav({
+  branch,
+  onSwitch,
+}: {
+  branch: BranchInfo;
+  onSwitch?: ((id: string) => void) | undefined;
+}) {
+  const prev = branch.ids[branch.index - 1];
+  const next = branch.ids[branch.index + 1];
+  return (
+    <span className="text-fg-muted inline-flex items-center gap-0.5 text-[11px]">
+      <button
+        type="button"
+        className="hover:text-fg disabled:opacity-30"
+        disabled={!prev || !onSwitch}
+        onClick={() => prev && onSwitch?.(prev)}
+        aria-label="前の分岐"
+      >
+        <ChevronLeft size={13} />
+      </button>
+      <span className="tabular-nums">
+        {branch.index + 1}/{branch.count}
+      </span>
+      <button
+        type="button"
+        className="hover:text-fg disabled:opacity-30"
+        disabled={!next || !onSwitch}
+        onClick={() => next && onSwitch?.(next)}
+        aria-label="次の分岐"
+      >
+        <ChevronRight size={13} />
+      </button>
+    </span>
+  );
+}
+
+/** ユーザー発言の編集フォーム */
+function EditForm({
+  initial,
+  onSubmit,
+  onCancel,
+}: {
+  initial: string;
+  onSubmit: (t: string) => void;
+  onCancel: () => void;
+}) {
+  const [text, setText] = useState(initial);
+  const composing = useRef(false);
+  return (
+    <div className="flex flex-col gap-2">
+      <textarea
+        autoFocus
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        onCompositionStart={() => (composing.current = true)}
+        onCompositionEnd={() => (composing.current = false)}
+        onKeyDown={(e) => {
+          if (e.key === 'Escape') onCancel();
+          if (
+            e.key === 'Enter' &&
+            !e.shiftKey &&
+            !composing.current &&
+            !e.nativeEvent.isComposing
+          ) {
+            e.preventDefault();
+            if (text.trim()) onSubmit(text.trim());
+          }
+        }}
+        className="border-border bg-surface focus-visible:ring-accent/60 min-h-20 w-full resize-y rounded-md border px-2.5 py-1.5 text-[15px] leading-relaxed focus-visible:ring-2 focus-visible:outline-none"
+      />
+      <div className="flex gap-2">
+        <Button
+          size="sm"
+          onClick={() => text.trim() && onSubmit(text.trim())}
+          disabled={!text.trim()}
+        >
+          <Send size={12} /> 送信して分岐
+        </Button>
+        <Button size="sm" variant="ghost" onClick={onCancel}>
+          キャンセル
+        </Button>
+        <span className="text-fg-muted self-center text-[11px]">添付は引き継がれます</span>
+      </div>
+    </div>
+  );
 }
 
 function pickText(
@@ -141,8 +252,18 @@ function UsageLine({ usage, model }: { usage: Usage | null; model: string | null
   return <div className="text-fg-muted/70 mt-1 text-[11px]">{parts.join(' · ')}</div>;
 }
 
-export function MessageItem({ message, stream, isLastAssistant, onRegenerate }: MessageItemProps) {
+export function MessageItem({
+  message,
+  stream,
+  isLastAssistant,
+  branch,
+  highlighted,
+  onRegenerate,
+  onSwitchBranch,
+  onEdit,
+}: MessageItemProps) {
   const approvals = useStreamStore((s) => s.approvals);
+  const [editing, setEditing] = useState(false);
   if (message.role === 'tool') return <ToolResultCard message={message} />;
   if (message.kind === 'tool-media') return <ToolMediaStrip message={message} />;
   if (message.kind === 'note') {
@@ -166,7 +287,14 @@ export function MessageItem({ message, stream, isLastAssistant, onRegenerate }: 
   const pendingForThis = Object.values(approvals).filter((a) => a.messageId === message.id);
 
   return (
-    <div className={cn('group flex gap-3 px-4 py-3', isUser && 'bg-surface-2/40')}>
+    <div
+      id={`msg-${message.id}`}
+      className={cn(
+        'group flex gap-3 px-4 py-3 transition-colors',
+        isUser && 'bg-surface-2/40',
+        highlighted && 'bg-accent/10',
+      )}
+    >
       <div
         className={cn(
           'mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md',
@@ -178,10 +306,31 @@ export function MessageItem({ message, stream, isLastAssistant, onRegenerate }: 
       <div className="min-w-0 flex-1">
         {reasoning && <ReasoningBlock text={reasoning} streaming={streaming && !text} />}
         {isUser ? (
-          <>
-            {text && <div className="text-[15px] leading-relaxed whitespace-pre-wrap">{text}</div>}
-            <MediaParts message={message} />
-          </>
+          editing ? (
+            <EditForm
+              initial={text}
+              onSubmit={(t) => {
+                setEditing(false);
+                onEdit?.(message.id, t);
+              }}
+              onCancel={() => setEditing(false)}
+            />
+          ) : (
+            <>
+              {text && (
+                <div className="text-[15px] leading-relaxed whitespace-pre-wrap">{text}</div>
+              )}
+              <MediaParts message={message} />
+              <div className="mt-1 flex items-center gap-2 opacity-0 transition-opacity group-hover:opacity-100">
+                {onEdit && (
+                  <Button variant="ghost" size="sm" onClick={() => setEditing(true)}>
+                    <Pencil size={12} /> 編集
+                  </Button>
+                )}
+                {branch && <BranchNav branch={branch} onSwitch={onSwitchBranch} />}
+              </div>
+            </>
+          )
         ) : text ? (
           <Markdown text={text} />
         ) : streaming ? (
@@ -209,11 +358,14 @@ export function MessageItem({ message, stream, isLastAssistant, onRegenerate }: 
         {!isUser && !streaming && finish !== 'tool_calls' && (
           <UsageLine usage={stream?.usage ?? message.usage} model={message.model} />
         )}
-        {!isUser && !streaming && isLastAssistant && onRegenerate && (
-          <div className="mt-1 opacity-0 transition-opacity group-hover:opacity-100">
-            <Button variant="ghost" size="sm" onClick={() => onRegenerate(message.id)}>
-              <RefreshCw size={12} /> 再生成
-            </Button>
+        {!isUser && !streaming && (isLastAssistant || branch) && (
+          <div className="mt-1 flex items-center gap-2 opacity-0 transition-opacity group-hover:opacity-100">
+            {isLastAssistant && onRegenerate && (
+              <Button variant="ghost" size="sm" onClick={() => onRegenerate(message.id)}>
+                <RefreshCw size={12} /> 再生成
+              </Button>
+            )}
+            {branch && <BranchNav branch={branch} onSwitch={onSwitchBranch} />}
           </div>
         )}
       </div>

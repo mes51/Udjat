@@ -7,6 +7,9 @@ interface UiStore {
   setProfilesDialogOpen: (open: boolean) => void;
   conversationSettingsOpen: boolean;
   setConversationSettingsOpen: (open: boolean) => void;
+  /** 検索結果などから飛んだ時に、表示後スクロールして強調するメッセージ */
+  scrollTarget: { conversationId: string; messageId: string } | null;
+  setScrollTarget: (t: { conversationId: string; messageId: string } | null) => void;
 }
 
 function readSelected(): string | null {
@@ -32,4 +35,6 @@ export const useUiStore = create<UiStore>((set) => ({
   setProfilesDialogOpen: (open) => set({ profilesDialogOpen: open }),
   conversationSettingsOpen: false,
   setConversationSettingsOpen: (open) => set({ conversationSettingsOpen: open }),
+  scrollTarget: null,
+  setScrollTarget: (t) => set({ scrollTarget: t }),
 }));

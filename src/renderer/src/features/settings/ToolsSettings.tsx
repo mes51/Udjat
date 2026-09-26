@@ -97,12 +97,33 @@ function WebSearchSettings() {
   );
 }
 
+function GeneralSettings() {
+  const autoTitle = useSetting<boolean>('titles.auto');
+  const save = useSettingMutation();
+  const enabled = autoTitle.data !== false;
+  return (
+    <label className="flex items-center gap-2 text-sm">
+      <input
+        type="checkbox"
+        checked={enabled}
+        disabled={!autoTitle.isFetched || save.isPending}
+        onChange={(e) => save.mutate({ key: 'titles.auto', value: e.target.checked })}
+      />
+      最初の往復が終わったら、モデルに会話タイトルを付けさせる
+    </label>
+  );
+}
+
 export function ToolsSettings() {
   const tools = useTools();
   const setPolicy = useToolPolicyMutation();
 
   return (
     <div className="flex flex-col gap-6">
+      <section>
+        <h3 className="mb-2 text-sm font-medium">一般</h3>
+        <GeneralSettings />
+      </section>
       <section>
         <h3 className="mb-2 text-sm font-medium">ツールの承認ポリシー</h3>
         <div className="flex flex-col gap-2">

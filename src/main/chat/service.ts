@@ -190,6 +190,35 @@ export class ChatService {
     return { parts, linked };
   }
 
+  /**
+   * ユーザー発言を編集して送り直す。元のメッセージと同じ親の下に新しい分岐を作る。
+   * 添付は引き継ぐ(自動生成されたコンタクトシート等の派生物は除く)。
+   */
+  async edit(messageId: string, text: string): Promise<RunHandle> {
+    const { messages } = this.deps;
+    const target = messages.get(messageId);
+    if (!target || target.role !== 'user' || target.kind !== 'normal') {
+      throw new Error('編集できるのはユーザーの発言だけです');
+    }
+    if (this.isRunning(target.conversationId)) throw new Error('この会話は応答生成中です');
+    const attachments: AttachmentRef[] = [];
+    for (const p of target.parts) {
+      if (p.type === 'text' || p.type === 'reasoning') continue;
+      const a = this.deps.media?.store.get(p.attachmentId);
+      if (!a || a.meta.derivedFrom) continue;
+      attachments.push({
+        id: p.attachmentId,
+        ...(p.type === 'video' && p.sendMode ? { sendMode: p.sendMode } : {}),
+      });
+    }
+    return this.send({
+      conversationId: target.conversationId,
+      text,
+      attachments,
+      parentId: target.parentId,
+    });
+  }
+
   /** assistant メッセージを同じ親の下に作り直す(分岐) */
   async regenerate(messageId: string): Promise<RunHandle> {
     const { conversations, messages } = this.deps;
@@ -286,13 +315,88 @@ export class ChatService {
   private start(conversationId: string, profile: ServerProfile, assistant: Message): string {
     const runId = newId();
     const controller = new AbortController();
-    const done = this.run(runId, conversationId, profile, assistant, controller.signal).finally(
-      () => {
+    const done = this.run(runId, conversationId, profile, assistant, controller.signal)
+      .finally(() => {
         this.runs.delete(runId);
-      },
-    );
+      })
+      .then(() => this.maybeGenerateTitle(conversationId, profile, controller.signal))
+      .catch(() => undefined);
     this.runs.set(runId, { controller, conversationId, done });
     return runId;
+  }
+
+  /**
+   * 最初の往復が終わった会話に、モデルで短いタイトルを付ける。
+   * 設定 titles.auto が false なら何もしない。失敗しても無視する。
+   */
+  private async maybeGenerateTitle(
+    conversationId: string,
+    profile: ServerProfile,
+    signal: AbortSignal,
+  ): Promise<void> {
+    if (signal.aborted) return;
+    if (this.deps.getSetting?.('titles.auto') === false) return;
+    const { conversations, messages } = this.deps;
+    const conv = conversations.get(conversationId);
+    if (!conv?.activeLeafId) return;
+    const path = messages.pathToRoot(conv.activeLeafId);
+    const users = path.filter((m) => m.role === 'user' && m.kind === 'normal');
+    const last = path.at(-1);
+    if (users.length !== 1 || !last || last.role !== 'assistant' || last.finishReason !== 'stop')
+      return;
+    const userText = users[0]!.parts
+      .filter((p) => p.type === 'text')
+      .map((p) => p.text)
+      .join('\n');
+    const assistantText = last.parts
+      .filter((p) => p.type === 'text')
+      .map((p) => p.text)
+      .join('\n');
+    if (!assistantText.trim()) return;
+    // ユーザーがタイトルを手で変えていたら触らない(送信時に付けた仮タイトルのままの時だけ)
+    let firstAttachmentName = '';
+    for (const p of users[0]!.parts) {
+      if (p.type !== 'text' && p.type !== 'reasoning') {
+        firstAttachmentName = p.name ?? '';
+        break;
+      }
+    }
+    if (conv.title !== makeTitle(userText || firstAttachmentName)) return;
+    const model = resolveModel(conv, profile);
+    if (!model) return;
+    const capabilities = await this.capabilitiesFor(profile, model);
+    const prompt =
+      'Give this conversation a short title in the same language as the user, at most 20 characters, no quotes, no trailing punctuation. Output only the title.\n\n' +
+      `User: ${[...userText].slice(0, 600).join('')}\n\nAssistant: ${[...assistantText].slice(0, 600).join('')}`;
+    let out = '';
+    try {
+      for await (const ev of getAdapter(profile.kind).chat(
+        profile,
+        {
+          model,
+          messages: [{ role: 'user', text: prompt }],
+          params: { temperature: 0.2, maxTokens: 48, think: false },
+          capabilities,
+        },
+        signal,
+      )) {
+        if (ev.type === 'text-delta') out += ev.text;
+        if (ev.type === 'error') return;
+      }
+    } catch {
+      return;
+    }
+    const title = out
+      .replace(/<think>[\s\S]*?<\/think>/g, '')
+      .split(/\r?\n/)
+      .map((s) => cleanTitle(s))
+      .find((s) => s.length > 0);
+    if (!title) return;
+    const chars = [...title];
+    const trimmed = chars.length > 30 ? chars.slice(0, 30).join('') + '…' : title;
+    const latest = conversations.get(conversationId);
+    if (latest && latest.title === conv.title)
+      conversations.update(conversationId, { title: trimmed }, { touch: false });
   }
 
   private async run(
@@ -584,6 +688,21 @@ export class ChatService {
       });
     });
   }
+}
+
+/** モデルが付けがちな引用符・句点・「タイトル:」の前置きを落とす */
+function cleanTitle(raw: string): string {
+  let s = raw
+    .trim()
+    .replace(/^(タイトル|title)\s*[:：]\s*/i, '')
+    .replace(/[*_`#>]+/g, ''); // Markdown の装飾は落とす
+  for (let i = 0; i < 3; i++) {
+    s = s
+      .replace(/[\s。.!！?？、,]+$/, '')
+      .replace(/^["'「『“‘]+|["'」』”’]+$/g, '')
+      .trim();
+  }
+  return s;
 }
 
 function makeTitle(text: string): string {

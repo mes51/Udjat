@@ -1,5 +1,8 @@
-import { app } from 'electron';
+import { app, BrowserWindow, dialog } from 'electron';
+import { writeFileSync } from 'node:fs';
+import { extname, join } from 'node:path';
 import type { ServerProfile, ServerProfileInput } from '@shared/schemas';
+import { exportFileName, exportJson, exportMarkdown } from '@main/chat/export';
 import type { ChatService } from '@main/chat/service';
 import type { ToolRegistry } from '@main/tools/registry';
 import type { MediaStore } from '@main/media/store';
@@ -113,13 +116,67 @@ export function registerIpcHandlers(ctx: AppContext): void {
     if (!conv?.activeLeafId) return [];
     return ctx.messages.pathToRoot(conv.activeLeafId);
   });
+  handleIpc('messages:branches', ({ conversationId }) => {
+    const conv = ctx.conversations.get(conversationId);
+    if (!conv?.activeLeafId) return {};
+    return ctx.messages.branches(ctx.messages.pathToRoot(conv.activeLeafId));
+  });
+  handleIpc('messages:switchBranch', ({ conversationId, messageId }) => {
+    const target = ctx.messages.get(messageId);
+    if (!target || target.conversationId !== conversationId)
+      throw new Error('メッセージが見つかりません');
+    const leaf = ctx.messages.latestLeafUnder(messageId);
+    const conv = ctx.conversations.update(
+      conversationId,
+      { activeLeafId: leaf.id },
+      { touch: false },
+    );
+    if (!conv) throw new Error('会話が見つかりません');
+    return conv;
+  });
   handleIpc('messages:search', ({ query, limit }) => ctx.messages.search(query, limit));
+  handleIpc('conversations:export', ({ id, format }) => {
+    const conv = ctx.conversations.get(id);
+    if (!conv) throw new Error('会話が見つかりません');
+    if (format === 'markdown') {
+      const path = conv.activeLeafId ? ctx.messages.pathToRoot(conv.activeLeafId) : [];
+      return { fileName: exportFileName(conv, 'md'), content: exportMarkdown(conv, path) };
+    }
+    const all = ctx.messages.listByConversation(id);
+    const ids = new Set<string>();
+    for (const m of all)
+      for (const p of m.parts)
+        if (p.type !== 'text' && p.type !== 'reasoning') ids.add(p.attachmentId);
+    const attachments = [...ids]
+      .map((a) => ctx.media.get(a))
+      .filter((a): a is NonNullable<typeof a> => !!a);
+    return { fileName: exportFileName(conv, 'json'), content: exportJson(conv, all, attachments) };
+  });
+  handleIpc('files:save', async ({ fileName, content }) => {
+    const win = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0];
+    const ext = extname(fileName).slice(1);
+    const filters =
+      ext === 'md'
+        ? [{ name: 'Markdown', extensions: ['md'] }]
+        : ext === 'json'
+          ? [{ name: 'JSON', extensions: ['json'] }]
+          : [];
+    const opts = {
+      defaultPath: join(app.getPath('documents'), fileName),
+      filters: [...filters, { name: 'すべてのファイル', extensions: ['*'] }],
+    };
+    const r = win ? await dialog.showSaveDialog(win, opts) : await dialog.showSaveDialog(opts);
+    if (r.canceled || !r.filePath) return null;
+    writeFileSync(r.filePath, content, 'utf8');
+    return r.filePath;
+  });
 
   // --- チャット ---
   handleIpc('chat:send', ({ conversationId, text, attachments }) => {
     if (ctx.chat.isRunning(conversationId)) throw new Error('この会話は応答生成中です');
     return ctx.chat.send({ conversationId, text, ...(attachments ? { attachments } : {}) });
   });
+  handleIpc('chat:edit', ({ messageId, text }) => ctx.chat.edit(messageId, text));
   handleIpc('chat:regenerate', ({ messageId }) => ctx.chat.regenerate(messageId));
   handleIpc('chat:abort', ({ runId }) => ctx.chat.abort(runId));
   handleIpc('chat:running', ({ conversationId }) => ctx.chat.isRunning(conversationId));

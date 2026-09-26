@@ -1,7 +1,7 @@
 import type { QueryClient } from '@tanstack/react-query';
 import { useStreamStore } from '@renderer/state/stream-store';
 import { onEvent } from './ipc';
-import { keys } from './queries';
+import { invalidateConversationView, keys } from './queries';
 
 /**
  * main からの chat:event を購読して stream-store に流し込む。
@@ -14,13 +14,16 @@ export function subscribeChatEvents(qc: QueryClient): () => void {
     useStreamStore.getState().apply(ev);
     const t = ev.event.type;
     if (t === 'done' || t === 'path-changed') {
-      void qc.invalidateQueries({ queryKey: keys.path(ev.conversationId) }).then(() => {
+      void invalidateConversationView(qc, ev.conversationId).then(() => {
         if (t === 'done') setTimeout(() => useStreamStore.getState().clear(ev.messageId), 50);
       });
     }
     if (t === 'run-end') {
-      void qc.invalidateQueries({ queryKey: keys.path(ev.conversationId) });
+      void invalidateConversationView(qc, ev.conversationId);
+      // タイトル自動生成は run-end の後に走るので、少し遅らせてもう一度一覧を取り直す
       void qc.invalidateQueries({ queryKey: keys.conversations });
+      setTimeout(() => void qc.invalidateQueries({ queryKey: keys.conversations }), 4000);
+      setTimeout(() => void qc.invalidateQueries({ queryKey: keys.conversations }), 15000);
     }
   });
 }

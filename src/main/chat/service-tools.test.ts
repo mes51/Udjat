@@ -47,6 +47,7 @@ beforeEach(() => {
     tools: registry,
     emit: (e) => events.push(e),
     flushIntervalMs: 0,
+    getSetting: (k) => (k === 'titles.auto' ? false : null),
     maxToolIterations: 3,
   });
 });

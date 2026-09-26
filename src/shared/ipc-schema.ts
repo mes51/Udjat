@@ -10,6 +10,7 @@ import {
   ConversationSchema,
   MessageSchema,
   ModelInfoSchema,
+  RoleSchema,
   ServerProfileInputSchema,
   ServerProfileSchema,
   ToolApprovalDecisionSchema,
@@ -118,11 +119,40 @@ export const ipcInvokeSchema = {
     input: z.object({ conversationId: z.string().min(1) }),
     output: z.array(MessageSchema),
   },
+  /** パス上の分岐情報(兄弟が 2 つ以上あるメッセージのみ) */
+  'messages:branches': {
+    input: z.object({ conversationId: z.string().min(1) }),
+    output: z.record(
+      z.string(),
+      z.object({ index: z.number(), count: z.number(), ids: z.array(z.string()) }),
+    ),
+  },
+  /** 指定した兄弟に切り替える(その配下で最後に作られた葉を active にする) */
+  'messages:switchBranch': {
+    input: z.object({ conversationId: z.string().min(1), messageId: z.string().min(1) }),
+    output: ConversationSchema,
+  },
   'messages:search': {
     input: z.object({ query: z.string(), limit: z.number().int().min(1).max(200).optional() }),
     output: z.array(
-      z.object({ messageId: z.string(), conversationId: z.string(), snippet: z.string() }),
+      z.object({
+        messageId: z.string(),
+        conversationId: z.string(),
+        conversationTitle: z.string(),
+        role: RoleSchema,
+        createdAt: z.number(),
+        snippet: z.string(),
+      }),
     ),
+  },
+  'conversations:export': {
+    input: z.object({ id: z.string().min(1), format: z.enum(['markdown', 'json']) }),
+    output: z.object({ fileName: z.string(), content: z.string() }),
+  },
+  /** 保存ダイアログを出してファイルに書く。キャンセルなら null */
+  'files:save': {
+    input: z.object({ fileName: z.string(), content: z.string() }),
+    output: z.string().nullable(),
   },
 
   'chat:send': {
@@ -131,6 +161,11 @@ export const ipcInvokeSchema = {
       text: z.string(),
       attachments: z.array(AttachmentRefSchema).optional(),
     }),
+    output: RunHandleSchema,
+  },
+  /** ユーザー発言を編集して、同じ親の下に新しい分岐として送り直す */
+  'chat:edit': {
+    input: z.object({ messageId: z.string().min(1), text: z.string() }),
     output: RunHandleSchema,
   },
   'chat:regenerate': { input: z.object({ messageId: z.string().min(1) }), output: RunHandleSchema },

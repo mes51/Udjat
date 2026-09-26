@@ -65,6 +65,21 @@ export type MessagePatch = Partial<
   Pick<Message, 'parts' | 'toolCalls' | 'toolMeta' | 'usage' | 'finishReason' | 'error' | 'model'>
 >;
 
+export interface BranchInfo {
+  index: number;
+  count: number;
+  ids: string[];
+}
+
+export interface SearchHit {
+  messageId: string;
+  conversationId: string;
+  conversationTitle: string;
+  role: Role;
+  createdAt: number;
+  snippet: string;
+}
+
 export function partsToText(parts: Part[]): string {
   return parts
     .filter((p) => p.type === 'text')
@@ -186,6 +201,24 @@ export class MessageRepository {
     }
   }
 
+  /**
+   * パス上の各メッセージについて、兄弟(同じ親を持つ分岐)の位置と一覧を返す。
+   * 兄弟が 1 つしかないものは含めない。
+   */
+  branches(path: Message[]): Record<string, BranchInfo> {
+    const out: Record<string, BranchInfo> = {};
+    for (const m of path) {
+      const sibs = this.children(m.conversationId, m.parentId);
+      if (sibs.length <= 1) continue;
+      out[m.id] = {
+        index: sibs.findIndex((s) => s.id === m.id),
+        count: sibs.length,
+        ids: sibs.map((s) => s.id),
+      };
+    }
+    return out;
+  }
+
   listByConversation(conversationId: string): Message[] {
     return (
       this.db
@@ -204,40 +237,43 @@ export class MessageRepository {
    * 全文検索。trigram トークナイザは 3 文字未満のクエリにマッチしないため、
    * 短いクエリは LIKE にフォールバックする。
    */
-  search(
-    query: string,
-    limit = 50,
-  ): { messageId: string; conversationId: string; snippet: string }[] {
+  search(query: string, limit = 50): SearchHit[] {
     const q = query.trim();
     if (q.length === 0) return [];
-    if ([...q].length < 3) {
-      const rows = this.db
-        .prepare(
-          `SELECT message_id, conversation_id, substr(text, 1, 80) AS snippet
-           FROM messages_fts WHERE text LIKE ? ESCAPE '\\' LIMIT ?`,
-        )
-        .all(`%${q.replace(/[\\%_]/g, (c) => `\\${c}`)}%`, limit) as {
-        message_id: string;
-        conversation_id: string;
-        snippet: string;
-      }[];
-      return rows.map((r) => ({
-        messageId: r.message_id,
-        conversationId: r.conversation_id,
-        snippet: r.snippet,
-      }));
-    }
-    // MATCH 構文のメタ文字を無効化するため、クエリ全体を文字列リテラルとして渡す
-    const literal = `"${q.replace(/"/g, '""')}"`;
+    // 短いクエリは LIKE、それ以外は FTS(MATCH のメタ文字を無効化するため文字列リテラルにする)
+    const useLike = [...q].length < 3;
+    const where = useLike ? `f.text LIKE ? ESCAPE '\\'` : `messages_fts MATCH ?`;
+    const arg = useLike
+      ? `%${q.replace(/[\\%_]/g, (c) => `\\${c}`)}%`
+      : `"${q.replace(/"/g, '""')}"`;
+    const snippet = useLike
+      ? `substr(f.text, 1, 80)`
+      : `snippet(messages_fts, 2, '[', ']', '…', 12)`;
+    const order = useLike ? `m.created_at DESC` : `rank`;
     const rows = this.db
       .prepare(
-        `SELECT message_id, conversation_id, snippet(messages_fts, 2, '[', ']', '…', 12) AS snippet
-         FROM messages_fts WHERE messages_fts MATCH ? ORDER BY rank LIMIT ?`,
+        `SELECT f.message_id, f.conversation_id, c.title AS conversation_title, m.role, m.created_at,
+                ${snippet} AS snippet
+         FROM messages_fts f
+         JOIN messages m ON m.id = f.message_id
+         JOIN conversations c ON c.id = f.conversation_id
+         WHERE ${where} AND m.kind = 'normal' AND m.role IN ('user', 'assistant')
+         ORDER BY ${order} LIMIT ?`,
       )
-      .all(literal, limit) as { message_id: string; conversation_id: string; snippet: string }[];
+      .all(arg, limit) as {
+      message_id: string;
+      conversation_id: string;
+      conversation_title: string;
+      role: Role;
+      created_at: number;
+      snippet: string;
+    }[];
     return rows.map((r) => ({
       messageId: r.message_id,
       conversationId: r.conversation_id,
+      conversationTitle: r.conversation_title,
+      role: r.role,
+      createdAt: r.created_at,
       snippet: r.snippet,
     }));
   }
