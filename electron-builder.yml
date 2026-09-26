@@ -1,0 +1,22 @@
+appId: dev.mesgo.udjat
+productName: Udjat
+directories:
+  output: release
+  buildResources: build
+files:
+  - out/**
+  - package.json
+# ネイティブ依存は使わない(DB は node:sqlite)。ffmpeg を同梱する段階で asarUnpack に追加する。
+asarUnpack: []
+npmRebuild: false
+win:
+  target:
+    - target: zip
+      arch:
+        - x64
+  artifactName: ${productName}-${version}-win-${arch}.${ext}
+# zip 配布はポータブル運用が前提なので、exe の隣に portable.marker を置いて
+# 起動時にデータディレクトリを exe 隣の data/ に向ける(src/main/data-dir.ts 参照)。
+extraFiles:
+  - from: resources/portable.marker
+    to: portable.marker

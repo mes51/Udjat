@@ -1,0 +1,30 @@
+@import 'tailwindcss';
+
+@theme {
+  --color-surface: #0f1115;
+  --color-surface-2: #171a21;
+  --color-border: #2a2f3a;
+  --color-fg: #e6e8ee;
+  --color-fg-muted: #9aa3b2;
+  --color-accent: #6ea8fe;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--color-surface);
+  color: var(--color-fg);
+  font-family:
+    system-ui,
+    -apple-system,
+    'Segoe UI',
+    'Yu Gothic UI',
+    'Hiragino Sans',
+    'Noto Sans JP',
+    sans-serif;
+}
