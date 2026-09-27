@@ -22,14 +22,58 @@ function statusValue(v: unknown): string | null {
   return null;
 }
 
+interface UnslothModelRow {
+  id: string;
+  loaded?: boolean;
+  /** GGUF の量子化(Q4_K_M 等)。無ければ Transformers / MLX のモデル */
+  quant?: string;
+}
+
+async function unslothModels(profile: ServerProfile, signal?: AbortSignal) {
+  const res = await requestJson<{ data?: UnslothModelRow[] }>(profile, '/v1/models', {
+    signal,
+    timeoutMs: STATUS_TIMEOUT_MS,
+  });
+  return res.data ?? [];
+}
+
+/**
+ * Unsloth の /load は GGUF を `gguf_variant` の有無で見分ける(無いと Transformers ロード扱いになり
+ * GGUF は読み込まれない)。/v1/models の `quant` を渡し、"id:QUANT" 形式の指定も受け付ける。
+ */
+function unslothLoadBody(rows: UnslothModelRow[], model: string): Record<string, unknown> {
+  let id = model;
+  let quant: string | undefined;
+  const row = rows.find((r) => r.id === model);
+  if (row) quant = row.quant;
+  else if (model.includes(':')) {
+    const i = model.lastIndexOf(':');
+    const base = model.slice(0, i);
+    const suffix = model.slice(i + 1);
+    const baseRow = rows.find((r) => r.id === base);
+    if (baseRow || /^[A-Za-z0-9_]+$/.test(suffix)) {
+      id = base;
+      quant = suffix;
+    }
+  }
+  // max_seq_length 0 = サーバー(llama.cpp / MLX)にコンテキスト長を任せる
+  const body: Record<string, unknown> = { model_path: id, max_seq_length: 0 };
+  if (quant) body['gguf_variant'] = quant;
+  return body;
+}
+
+/** 15 秒を超えるロードは 200 のままパディングされた本文で返り、失敗は本文の _deferred_error に入る */
+function unslothDeferredError(res: unknown): string | null {
+  const d = (res as { _deferred_error?: { status_code?: number; detail?: unknown } } | null)
+    ?._deferred_error;
+  if (!d) return null;
+  const detail = typeof d.detail === 'string' ? d.detail : JSON.stringify(d.detail);
+  return `${d.status_code ?? ''} ${detail}`.trim();
+}
+
 const unsloth: ModelManager = {
   async status(profile, signal) {
-    const res = await requestJson<{ data?: { id: string; loaded?: boolean }[] }>(
-      profile,
-      '/v1/models',
-      { signal, timeoutMs: STATUS_TIMEOUT_MS },
-    );
-    const rows = res.data ?? [];
+    const rows = await unslothModels(profile, signal);
     return {
       supported: rows.some((r) => typeof r.loaded === 'boolean'),
       loaded: rows.filter((r) => r.loaded === true).map((r) => r.id),
@@ -37,21 +81,36 @@ const unsloth: ModelManager = {
     };
   },
   async load(profile, model, signal) {
-    // model_path は /v1/models の id(公開 id)。max_seq_length 0 = サーバーに任せる
-    await requestJson<{ status?: string; model?: string }>(profile, '/v1/load', {
+    const rows = await unslothModels(profile, signal);
+    const body = unslothLoadBody(rows, model);
+    const res = await requestJson<{ status?: string; model?: string }>(profile, '/v1/load', {
       method: 'POST',
-      body: { model_path: model, max_seq_length: 0 },
+      body,
       signal,
       timeoutMs: LOAD_TIMEOUT_MS,
     });
+    const deferred = unslothDeferredError(res);
+    if (deferred) throw new ProviderError(`モデルのロードに失敗しました: ${deferred}`);
+    // 応答が返っても常駐していなければ失敗扱い(no-op で 200 が返るケースを拾う)
+    const after = await this.status(profile, signal);
+    const id = String(body['model_path']);
+    if (!after.loaded.includes(id) && !after.loaded.includes(model)) {
+      throw new ProviderError(
+        `ロード要求は受け付けられましたが、モデル ${model} が常駐していません(応答: ${JSON.stringify(res).slice(0, 300)})`,
+      );
+    }
   },
   async unload(profile, model, signal) {
-    await requestJson(profile, '/v1/unload', {
+    const rows = await unslothModels(profile, signal);
+    const body = unslothLoadBody(rows, model);
+    const res = await requestJson(profile, '/v1/unload', {
       method: 'POST',
-      body: { model_path: model },
+      body: { model_path: body['model_path'] },
       signal,
       timeoutMs: 3 * 60_000,
     });
+    const deferred = unslothDeferredError(res);
+    if (deferred) throw new ProviderError(`モデルのアンロードに失敗しました: ${deferred}`);
   },
 };
 

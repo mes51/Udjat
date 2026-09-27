@@ -50,10 +50,40 @@ describe('model management', () => {
       ['b', false],
     ]);
     await mgr.load(profile, 'b');
-    expect(server.requests.at(-1)?.body).toEqual({ model_path: 'b', max_seq_length: 0 });
+    const loadReq = () => server!.requests.filter((r) => r.path === '/v1/load').at(-1)?.body;
+    expect(loadReq()).toEqual({ model_path: 'b', max_seq_length: 0 });
     expect((await mgr.status(profile)).loaded).toEqual(['b']);
+    // GGUF は /v1/models の quant を gguf_variant として渡す(無いと Transformers ロード扱いになる)
+    await mgr.load(profile, 'a');
+    expect(loadReq()).toEqual({ model_path: 'a', max_seq_length: 0, gguf_variant: 'Q4_K_M' });
+    // "id:QUANT" 形式でも指定できる
+    await mgr.load(profile, 'b:Q8_0');
+    expect(loadReq()).toEqual({ model_path: 'b', max_seq_length: 0, gguf_variant: 'Q8_0' });
     await mgr.unload(profile, 'b');
+    expect(server.requests.at(-1)?.body).toEqual({ model_path: 'b' });
     expect((await mgr.status(profile)).loaded).toEqual([]);
+  });
+
+  it('unsloth: treats a padded _deferred_error body and a no-op 200 as failures', async () => {
+    let mode: 'deferred' | 'noop' = 'deferred';
+    server = await startMockServer({
+      'GET /v1/models': (_r, _b, res) =>
+        json(res, { data: [{ id: 'm', object: 'model', loaded: false, quant: 'Q8_0' }] }),
+      'POST /v1/load': (_r, _b, res) => {
+        if (mode === 'deferred') {
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.write('   ');
+          res.end(
+            JSON.stringify({ _deferred_error: { status_code: 500, detail: 'CUDA out of memory' } }),
+          );
+        } else json(res, { status: 'loaded', model: 'm' });
+      },
+    });
+    const profile = server.profile('unsloth');
+    const mgr = modelManagerFor('unsloth')!;
+    await expect(mgr.load(profile, 'm')).rejects.toThrow(/CUDA out of memory/);
+    mode = 'noop';
+    await expect(mgr.load(profile, 'm')).rejects.toThrow(/常駐していません/);
   });
 
   it('llama.cpp router: uses /models status and polls until loaded; single-model mode is unsupported', async () => {
