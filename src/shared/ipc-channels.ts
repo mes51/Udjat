@@ -48,6 +48,10 @@ export const IPC_INVOKE_CHANNELS = [
   'mcp:disconnect',
   'mcp:importJson',
   'mcp:exportJson',
+  'media:binaries',
+  'settings:exportAll',
+  'settings:importAll',
+  'files:open',
 ] as const;
 
 /** main -> renderer の一方向イベントチャネル */

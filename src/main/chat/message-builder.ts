@@ -80,6 +80,7 @@ async function toCanonical(
       if (r.text) texts.push(r.text);
       if (r.image) (cm.images ??= []).push(r.image);
       if (r.video) (cm.video ??= []).push(r.video);
+      if (r.audio) (cm.audio ??= []).push(r.audio);
     } else texts.push(attachmentNote(p));
   }
   cm.text = texts.join('\n');

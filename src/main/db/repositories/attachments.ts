@@ -90,6 +90,10 @@ export class AttachmentRepository {
     }
   }
 
+  listAll(): Attachment[] {
+    return (this.db.prepare('SELECT * FROM attachments').all() as unknown as Row[]).map(fromRow);
+  }
+
   /** どのメッセージからも参照されていない添付(削除候補) */
   listUnreferenced(): Attachment[] {
     return (

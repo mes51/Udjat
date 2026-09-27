@@ -10,6 +10,9 @@ interface UiStore {
   /** 検索結果などから飛んだ時に、表示後スクロールして強調するメッセージ */
   scrollTarget: { conversationId: string; messageId: string } | null;
   setScrollTarget: (t: { conversationId: string; messageId: string } | null) => void;
+  /** Ctrl+K などで検索欄にフォーカスを要求した回数(変化を検知して focus する) */
+  searchFocusRequest: number;
+  requestSearchFocus: () => void;
 }
 
 function readSelected(): string | null {
@@ -37,4 +40,6 @@ export const useUiStore = create<UiStore>((set) => ({
   setConversationSettingsOpen: (open) => set({ conversationSettingsOpen: open }),
   scrollTarget: null,
   setScrollTarget: (t) => set({ scrollTarget: t }),
+  searchFocusRequest: 0,
+  requestSearchFocus: () => set((s) => ({ searchFocusRequest: s.searchFocusRequest + 1 })),
 }));

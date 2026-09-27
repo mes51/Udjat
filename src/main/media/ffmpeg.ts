@@ -305,6 +305,39 @@ export class FfmpegService {
     return { timestampsMs };
   }
 
+  /** 音声をモノラル 16kHz の mp3 にする(音声入力用。長さ上限あり) */
+  async transcodeAudio(
+    file: string,
+    out: string,
+    opts: { maxSeconds?: number; bitrateKbps?: number } = {},
+    signal?: AbortSignal,
+  ): Promise<void> {
+    mkdirSync(dirname(out), { recursive: true });
+    await this.run(
+      'ffmpeg',
+      [
+        '-hide_banner',
+        '-loglevel',
+        'error',
+        '-y',
+        '-i',
+        file,
+        ...(opts.maxSeconds ? ['-t', String(opts.maxSeconds)] : []),
+        '-vn',
+        '-ac',
+        '1',
+        '-ar',
+        '16000',
+        '-c:a',
+        'libmp3lame',
+        '-b:a',
+        `${opts.bitrateKbps ?? 48}k`,
+        out,
+      ],
+      signal,
+    );
+  }
+
   /** 区間を切り出して縮小・低 fps・無音の mp4 にする(ネイティブ動画入力用) */
   async clip(
     file: string,

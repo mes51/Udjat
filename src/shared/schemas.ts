@@ -102,6 +102,10 @@ export const AttachmentMetaSchema = z.object({
   hasAudio: z.boolean().optional(),
   codec: z.string().optional(),
   probeError: z.string().optional(),
+  /** PDF のページ数 */
+  pageCount: z.number().optional(),
+  /** PDF の内部タイトル */
+  title: z.string().optional(),
   /** 派生物(フレーム・コンタクトシート等)の元になった添付 id */
   derivedFrom: z.string().optional(),
   /** 派生物の説明(例: frame@12.5s, contact-sheet 0-95s) */

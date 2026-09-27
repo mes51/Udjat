@@ -229,6 +229,34 @@ export const ipcInvokeSchema = {
     output: z.object({ created: z.number(), updated: z.number() }),
   },
   'mcp:exportJson': { input: z.undefined(), output: z.string() },
+
+  /** ffmpeg / ffprobe の解決結果 */
+  'media:binaries': {
+    input: z.undefined(),
+    output: z.object({
+      ffmpeg: z.object({ path: z.string(), available: z.boolean(), custom: z.boolean() }),
+      ffprobe: z.object({ path: z.string(), available: z.boolean(), custom: z.boolean() }),
+    }),
+  },
+  /** 設定・プロファイル・MCP サーバー・ツールポリシーをまとめた JSON */
+  'settings:exportAll': {
+    input: z.object({ includeSecrets: z.boolean() }),
+    output: z.string(),
+  },
+  'settings:importAll': {
+    input: z.object({ json: z.string().min(1) }),
+    output: z.object({
+      settings: z.number(),
+      profiles: z.number(),
+      mcpServers: z.number(),
+      toolPolicies: z.number(),
+    }),
+  },
+  /** ファイルを開くダイアログを出してテキストを読む。キャンセルなら null */
+  'files:open': {
+    input: z.object({ extensions: z.array(z.string()).optional() }),
+    output: z.object({ path: z.string(), content: z.string() }).nullable(),
+  },
 } as const satisfies Record<IpcInvokeChannel, { input: z.ZodType; output: z.ZodType }>;
 
 export const ipcEventSchema = {

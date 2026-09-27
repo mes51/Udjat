@@ -1,5 +1,7 @@
 import { app, BrowserWindow, dialog } from 'electron';
-import { writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
+import { binariesAvailable, resolveBinaries } from '@main/media/binaries';
+import { exportSettings, importSettings } from '@main/settings/backup';
 import { extname, join } from 'node:path';
 import type { ServerProfile, ServerProfileInput } from '@shared/schemas';
 import { exportFileName, exportJson, exportMarkdown } from '@main/chat/export';
@@ -201,6 +203,48 @@ export function registerIpcHandlers(ctx: AppContext): void {
     }),
   );
   handleIpc('attachments:get', ({ id }) => ctx.media.get(id));
+
+  // --- 設定のバックアップ、ffmpeg ---
+  handleIpc('settings:exportAll', ({ includeSecrets }) =>
+    exportSettings(
+      { settings, profiles: ctx.profiles, mcpServers: ctx.mcpServers, tools: ctx.tools },
+      { includeSecrets },
+    ),
+  );
+  handleIpc('settings:importAll', ({ json }) =>
+    importSettings(
+      { settings, profiles: ctx.profiles, mcpServers: ctx.mcpServers, tools: ctx.tools },
+      json,
+    ),
+  );
+  handleIpc('media:binaries', () => {
+    const custom = {
+      ffmpeg: (settings.get('ffmpeg.path') as string | null) || null,
+      ffprobe: (settings.get('ffprobe.path') as string | null) || null,
+    };
+    const bins = resolveBinaries(custom);
+    const avail = binariesAvailable(bins);
+    return {
+      ffmpeg: { path: bins.ffmpeg, available: avail.ffmpeg, custom: !!custom.ffmpeg },
+      ffprobe: { path: bins.ffprobe, available: avail.ffprobe, custom: !!custom.ffprobe },
+    };
+  });
+  handleIpc('files:open', async ({ extensions }) => {
+    const win = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0];
+    const opts = {
+      properties: ['openFile' as const],
+      filters: [
+        ...(extensions && extensions.length > 0
+          ? [{ name: extensions.join(', '), extensions }]
+          : []),
+        { name: 'すべてのファイル', extensions: ['*'] },
+      ],
+    };
+    const r = win ? await dialog.showOpenDialog(win, opts) : await dialog.showOpenDialog(opts);
+    const path = r.filePaths[0];
+    if (r.canceled || !path) return null;
+    return { path, content: readFileSync(path, 'utf8') };
+  });
 
   // --- MCP ---
   handleIpc('mcp:list', () => {

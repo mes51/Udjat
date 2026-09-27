@@ -1,5 +1,5 @@
 import { Plus, Trash2 } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import {
   SERVER_KIND_LABELS,
   ServerKindSchema,
@@ -9,7 +9,6 @@ import {
   type ServerProfile,
   type ServerProfileInput,
 } from '@shared/schemas';
-import type { AppInfo } from '@shared/ipc-schema';
 import { Button } from '@renderer/components/ui/button';
 import { useConfirm } from '@renderer/components/ui/confirm';
 import { Dialog } from '@renderer/components/ui/dialog';
@@ -18,6 +17,7 @@ import { invoke } from '@renderer/lib/ipc';
 import { useProfileMutations, useProfiles } from '@renderer/lib/queries';
 import { cn } from '@renderer/lib/utils';
 import { useUiStore } from '@renderer/state/ui-store';
+import { GeneralSettings } from './GeneralSettings';
 import { McpSettings } from './McpSettings';
 import { ToolsSettings } from './ToolsSettings';
 
@@ -257,13 +257,8 @@ export function ProfilesDialog() {
   const setOpen = useUiStore((s) => s.setProfilesDialogOpen);
   const profiles = useProfiles();
   const [selectedId, setSelectedId] = useState<string | 'new' | null>(null);
-  const [info, setInfo] = useState<AppInfo | null>(null);
 
-  useEffect(() => {
-    if (open) void invoke('app:info').then(setInfo);
-  }, [open]);
-
-  const [tab, setTab] = useState<'servers' | 'tools' | 'mcp'>('servers');
+  const [tab, setTab] = useState<'servers' | 'tools' | 'mcp' | 'general'>('servers');
 
   // 未選択なら先頭のプロファイル、無ければ新規フォーム
   const effectiveId: string | 'new' = selectedId ?? profiles.data?.[0]?.id ?? 'new';
@@ -278,6 +273,7 @@ export function ProfilesDialog() {
       description={
         {
           servers: '接続先の LLM サーバーを登録します',
+          general: '表示、ffmpeg、設定のバックアップ',
           tools: 'ツールの承認ポリシーと Web 検索の設定',
           mcp: 'MCP サーバーの登録と接続',
         }[tab]
@@ -289,6 +285,7 @@ export function ProfilesDialog() {
             ['servers', 'サーバー'],
             ['tools', 'ツール'],
             ['mcp', 'MCP'],
+            ['general', '一般'],
           ] as const
         ).map(([id, label]) => (
           <button
@@ -306,6 +303,7 @@ export function ProfilesDialog() {
       </div>
       {tab === 'tools' && <ToolsSettings />}
       {tab === 'mcp' && <McpSettings />}
+      {tab === 'general' && <GeneralSettings />}
       <div className={cn('flex gap-4', tab !== 'servers' && 'hidden')}>
         <div className="w-52 shrink-0">
           {profiles.data?.map((p) => (
@@ -339,12 +337,6 @@ export function ProfilesDialog() {
           />
         </div>
       </div>
-      {info && (
-        <div className="text-fg-muted/70 border-border mt-4 border-t pt-2 text-[11px]">
-          Udjat {info.version} · データ: {info.dataDirMode} ({info.dataDir}) · Electron{' '}
-          {info.versions.electron} · SQLite {info.versions.sqlite}
-        </div>
-      )}
     </Dialog>
   );
 }

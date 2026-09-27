@@ -14,6 +14,7 @@ files:
 asarUnpack:
   - node_modules/ffmpeg-static/**
   - node_modules/ffprobe-static/**
+  - node_modules/@napi-rs/**
 npmRebuild: false
 # Chromium のロケールは日本語と英語のみ同梱する(サイズ削減)
 electronLanguages:

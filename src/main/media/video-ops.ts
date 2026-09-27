@@ -149,6 +149,25 @@ export class VideoOps {
     });
   }
 
+  /** 音声入力用に、モノラル 16kHz mp3 に変換したもの(先頭 maxSeconds まで) */
+  async nativeAudio(
+    audio: Attachment,
+    maxSeconds = 300,
+    signal?: AbortSignal,
+  ): Promise<Attachment> {
+    const key = `audio:${audio.id}:${maxSeconds}`;
+    return this.cached(key, async () => {
+      const path = this.store.scratchPath('audio.mp3');
+      await this.ffmpeg.transcodeAudio(this.store.pathOf(audio), path, { maxSeconds }, signal);
+      return this.store.addFile(path, {
+        originalName: `${audio.originalName}.16k.mp3`,
+        mime: 'audio/mpeg',
+        derivedFrom: audio.id,
+        derivedLabel: `audio mono16k ${maxSeconds}s`,
+      });
+    });
+  }
+
   /** ネイティブ動画入力用に、先頭 maxSeconds を縮小・低 fps 化したクリップ */
   async nativeClip(
     video: Attachment,

@@ -1,6 +1,6 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { MessageSquarePlus, Pin, Search, Settings, Trash2, X } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Button } from '@renderer/components/ui/button';
 import { useConfirm } from '@renderer/components/ui/confirm';
 import { Input } from '@renderer/components/ui/input';
@@ -72,6 +72,11 @@ export function Sidebar() {
   const openProfiles = useUiStore((s) => s.setProfilesDialogOpen);
   const running = useStreamStore((s) => s.running);
   const [query, setQuery] = useState('');
+  const searchRef = useRef<HTMLInputElement>(null);
+  const focusRequest = useUiStore((s) => s.searchFocusRequest);
+  useEffect(() => {
+    if (focusRequest > 0) searchRef.current?.focus();
+  }, [focusRequest]);
   const confirm = useConfirm();
 
   const newConversation = () => {
@@ -113,7 +118,8 @@ export function Sidebar() {
         <Input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="会話を検索"
+          ref={searchRef}
+          placeholder="会話を検索 (Ctrl+K)"
           className="pl-7 pr-7"
           aria-label="検索"
         />

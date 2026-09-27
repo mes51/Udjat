@@ -128,6 +128,16 @@ describe.skipIf(!available.ffmpeg || !available.ffprobe)('FfmpegService', () => 
     expect(p.durationMs).toBeLessThan(3600);
   });
 
+  it('transcodes audio to mono 16kHz mp3 with a length cap', async () => {
+    const out = join(dir, 'audio.mp3');
+    await svc.transcodeAudio(video, out, { maxSeconds: 3 });
+    const p = await svc.probe(out);
+    expect(p.kind).toBe('audio');
+    expect(p.audioCodec).toBe('mp3');
+    expect(p.durationMs).toBeGreaterThan(2500);
+    expect(p.durationMs).toBeLessThan(3600);
+  });
+
   it('reports ffmpeg failures with stderr', async () => {
     await expect(svc.probe(join(dir, 'missing.mp4'))).rejects.toThrow(/ffprobe failed/);
   });

@@ -3,6 +3,7 @@ import {
   copyFileSync,
   existsSync,
   mkdirSync,
+  readdirSync,
   readFileSync,
   rmSync,
   statSync,
@@ -12,6 +13,7 @@ import { basename, extname, join } from 'node:path';
 import type { Attachment, AttachmentMeta } from '@shared/schemas';
 import type { AttachmentRepository } from '@main/db/repositories/attachments';
 import type { FfmpegService } from './ffmpeg';
+import type { PdfService } from './pdf';
 
 /**
  * 添付ファイルの保管庫。内容の sha256 で重複排除し、media/<sha>.<ext> に置く。
@@ -66,9 +68,60 @@ export class MediaStore {
     private readonly repo: AttachmentRepository,
     private readonly ffmpeg: FfmpegService,
     private readonly dirs: MediaStoreOptions,
+    private readonly pdf?: PdfService,
   ) {
     mkdirSync(dirs.mediaDir, { recursive: true });
     mkdirSync(dirs.cacheDir, { recursive: true });
+  }
+
+  /**
+   * 掃除: どのメッセージからも参照されていない添付のうち古いものと、DB に無い media/ 内のファイル、
+   * scratch の残骸を消す。起動時に呼ぶ。
+   */
+  gc(opts: { maxAgeMs?: number; now?: number } = {}): {
+    deletedAttachments: number;
+    deletedFiles: number;
+  } {
+    const now = opts.now ?? Date.now();
+    const maxAge = opts.maxAgeMs ?? 24 * 60 * 60 * 1000;
+    let deletedAttachments = 0;
+    let deletedFiles = 0;
+    for (const a of this.repo.listUnreferenced()) {
+      if (now - a.createdAt < maxAge) continue;
+      this.repo.delete(a.id);
+      deletedAttachments++;
+      // 同じ内容(sha256)の別レコードは無いので、ファイルも消して良い
+      try {
+        rmSync(this.pathOf(a), { force: true });
+      } catch {
+        /* ignore */
+      }
+    }
+    const known = new Set(this.repo.listAll().map((a) => `${a.sha256}.${a.ext}`));
+    for (const name of readdirSync(this.dirs.mediaDir)) {
+      if (known.has(name)) continue;
+      try {
+        rmSync(join(this.dirs.mediaDir, name), { force: true });
+        deletedFiles++;
+      } catch {
+        /* ignore */
+      }
+    }
+    const scratch = join(this.dirs.cacheDir, 'scratch');
+    if (existsSync(scratch)) {
+      for (const name of readdirSync(scratch)) {
+        const p = join(scratch, name);
+        try {
+          if (now - statSync(p).mtimeMs > 60 * 60 * 1000) {
+            rmSync(p, { force: true });
+            deletedFiles++;
+          }
+        } catch {
+          /* ignore */
+        }
+      }
+    }
+    return { deletedAttachments, deletedFiles };
   }
 
   pathOf(a: Attachment): string {
@@ -162,6 +215,15 @@ export class MediaStore {
         meta.hasAudio = p.hasAudio;
         if (p.videoCodec) meta.codec = p.videoCodec;
         else if (p.audioCodec) meta.codec = p.audioCodec;
+      } catch (e) {
+        meta.probeError = (e as Error).message.slice(0, 300);
+      }
+    }
+    if (mime === 'application/pdf' && this.pdf) {
+      try {
+        const info = await this.pdf.info(path);
+        meta.pageCount = info.numPages;
+        if (info.title) meta.title = info.title;
       } catch (e) {
         meta.probeError = (e as Error).message.slice(0, 300);
       }

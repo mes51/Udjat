@@ -11,6 +11,17 @@
   --color-accent: #6ea8fe;
 }
 
+/* ライトテーマ: Tailwind の @theme 変数を上書きする */
+:root[data-theme='light'] {
+  --color-surface: #f7f8fa;
+  --color-surface-2: #ffffff;
+  --color-surface-3: #e9ecf1;
+  --color-border: #d5d9e0;
+  --color-fg: #1b1f27;
+  --color-fg-muted: #5c6575;
+  --color-accent: #2f6fdb;
+}
+
 html,
 body,
 #root {
@@ -18,9 +29,33 @@ body,
   margin: 0;
 }
 
+kbd {
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  padding: 0 0.35em;
+  font-size: 0.9em;
+  background: var(--color-surface-3);
+}
+
+/* shiki の 2 テーマ切替(defaultColor: false で出力した CSS 変数を使う) */
+.shiki,
+.shiki span {
+  color: var(--shiki-dark);
+  background-color: var(--shiki-dark-bg);
+}
+:root[data-theme='light'] .shiki,
+:root[data-theme='light'] .shiki span {
+  color: var(--shiki-light);
+  background-color: var(--shiki-light-bg);
+}
+
 body {
   background: var(--color-surface);
   color: var(--color-fg);
+  color-scheme: dark;
+}
+:root[data-theme='light'] body {
+  color-scheme: light;
   font-family:
     system-ui,
     -apple-system,

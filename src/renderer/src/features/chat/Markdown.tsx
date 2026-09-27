@@ -8,14 +8,15 @@ import { bundledLanguages, createHighlighter, type Highlighter } from 'shiki';
 import { createJavaScriptRegexEngine } from 'shiki/engine/javascript';
 import { Button } from '@renderer/components/ui/button';
 
-const THEME = 'github-dark-default';
+// ダーク/ライトの両テーマを CSS 変数で出力し、index.css 側で data-theme に応じて切り替える
+const THEMES = { dark: 'github-dark-default', light: 'github-light-default' } as const;
 
 // WASM(Oniguruma)は CSP の script-src 'self' で弾かれるため JS 正規表現エンジンを使う。
 // 言語は必要になった時に遅延ロードする。
 let highlighterPromise: Promise<Highlighter> | null = null;
 function getHighlighter(): Promise<Highlighter> {
   highlighterPromise ??= createHighlighter({
-    themes: [THEME],
+    themes: [THEMES.dark, THEMES.light],
     langs: [],
     engine: createJavaScriptRegexEngine(),
   });
@@ -45,7 +46,7 @@ async function highlight(code: string, lang: string): Promise<string> {
       use = 'text';
     }
   }
-  return hl.codeToHtml(code, { lang: use, theme: THEME });
+  return hl.codeToHtml(code, { lang: use, themes: THEMES, defaultColor: false });
 }
 
 function CodeBlock({ code, lang }: { code: string; lang: string }) {

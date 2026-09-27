@@ -9,6 +9,8 @@ import { ConversationRepository } from './db/repositories/conversations';
 import { McpServerRepository } from './db/repositories/mcp-servers';
 import { McpManager } from './tools/mcp/manager';
 import { FfmpegService } from './media/ffmpeg';
+import { PdfService } from './media/pdf';
+import { createPdfTools } from './tools/builtin/pdf';
 import { MediaStore } from './media/store';
 import { VideoOps } from './media/video-ops';
 import { createVideoTools } from './tools/builtin/video';
@@ -104,16 +106,29 @@ if (!app.requestSingleInstanceLock()) {
       ffmpeg: (settings.get('ffmpeg.path') as string | null) ?? null,
       ffprobe: (settings.get('ffprobe.path') as string | null) ?? null,
     });
-    const media = new MediaStore(attachments, ffmpeg, {
-      mediaDir: paths.media,
-      cacheDir: paths.cache,
-    });
+    const pdf = new PdfService();
+    const media = new MediaStore(
+      attachments,
+      ffmpeg,
+      { mediaDir: paths.media, cacheDir: paths.cache },
+      pdf,
+    );
     const ops = new VideoOps(media, ffmpeg);
     registerMediaProtocol(media);
 
     const tools = new ToolRegistry(db);
     registerBuiltinTools(tools);
     for (const t of createVideoTools({ store: media, ops })) tools.register(t);
+    for (const t of createPdfTools({ store: media, pdf })) tools.register(t);
+    // 未参照の添付と孤立ファイルの掃除(起動を遅らせないよう少し後で)
+    setTimeout(() => {
+      try {
+        const r = media.gc();
+        if (r.deletedAttachments || r.deletedFiles) console.log('[media] gc:', r);
+      } catch (e) {
+        console.warn('[media] gc failed:', e);
+      }
+    }, 5000);
     const mcpServers = new McpServerRepository(db);
     mcp = new McpManager({
       registry: tools,
@@ -128,7 +143,7 @@ if (!app.requestSingleInstanceLock()) {
       tools,
       emit: (ev) => broadcastIpcEvent('chat:event', ev),
       getSetting: (key) => settings.get(key),
-      media: { store: media, ops, attachments, resolver: new MediaResolver(media, ops) },
+      media: { store: media, ops, attachments, resolver: new MediaResolver(media, ops, {}, pdf) },
     });
     registerIpcHandlers({
       db,

@@ -82,6 +82,27 @@ describe.skipIf(!available.ffmpeg)('MediaStore', () => {
     expect(readdirSync(join(dir, 'cache', 'scratch'))).toHaveLength(0);
   });
 
+  it('gc removes old unreferenced attachments and orphan files but keeps linked ones', async () => {
+    const old = await store.addBytes(Buffer.from('old-unreferenced'), 'old.txt', 'text/plain');
+    const fresh = await store.addBytes(
+      Buffer.from('fresh-unreferenced'),
+      'fresh.txt',
+      'text/plain',
+    );
+    writeFileSync(join(dir, 'media', 'deadbeef.bin'), 'orphan');
+    const now = old.createdAt + 48 * 60 * 60 * 1000;
+    // fresh は「今」作られたことにする
+    db.prepare('UPDATE attachments SET created_at = ? WHERE id = ?').run(now - 1000, fresh.id);
+    const r = store.gc({ now });
+    expect(r.deletedAttachments).toBeGreaterThanOrEqual(1);
+    expect(store.get(old.id)).toBeNull();
+    expect(existsSync(join(dir, 'media', `${old.sha256}.txt`))).toBe(false);
+    expect(store.get(fresh.id)).not.toBeNull();
+    expect(existsSync(join(dir, 'media', 'deadbeef.bin'))).toBe(false);
+    // メッセージに紐づいた添付(前のテストの note.txt)は残る
+    expect(repo.listAll().some((a) => a.originalName === 'note.txt')).toBe(true);
+  });
+
   it('records probe failures without throwing', async () => {
     const p = join(dir, 'broken.mp4');
     writeFileSync(p, 'not a video');

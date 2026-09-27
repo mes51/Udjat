@@ -1,10 +1,10 @@
-import type { InputHTMLAttributes, SelectHTMLAttributes, TextareaHTMLAttributes } from 'react';
+import type { ComponentProps, SelectHTMLAttributes, TextareaHTMLAttributes } from 'react';
 import { cn } from '@renderer/lib/utils';
 
 const base =
   'w-full rounded-md border border-border bg-surface px-2.5 py-1.5 text-sm text-fg placeholder:text-fg-muted/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 disabled:opacity-50';
 
-export function Input({ className, ...props }: InputHTMLAttributes<HTMLInputElement>) {
+export function Input({ className, ...props }: ComponentProps<'input'>) {
   return <input className={cn(base, 'h-8', className)} {...props} />;
 }
 
