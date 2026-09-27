@@ -78,8 +78,10 @@ export function useSearch(query: string) {
 }
 
 /** path と分岐情報をまとめて再取得する */
+/** 送信・再生成・分岐切替の後に、表示中の会話(activeLeafId 含む)とパス・分岐情報を取り直す */
 export function invalidateConversationView(qc: QueryClient, conversationId: string): Promise<void> {
   return Promise.all([
+    qc.invalidateQueries({ queryKey: keys.conversation(conversationId) }),
     qc.invalidateQueries({ queryKey: keys.path(conversationId) }),
     qc.invalidateQueries({ queryKey: keys.branches(conversationId) }),
   ]).then(() => undefined);

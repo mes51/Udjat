@@ -5,6 +5,7 @@ import {
   Brain,
   ChevronLeft,
   ChevronRight,
+  GitBranch,
   Images,
   Info,
   Pencil,
@@ -38,6 +39,8 @@ export interface MessageItemProps {
   onSwitchBranch?: (messageId: string) => void;
   /** ユーザー発言の編集(新しい分岐として送り直す)。undefined なら編集不可(生成中など) */
   onEdit?: (messageId: string, text: string) => void;
+  /** この assistant 応答の直後から分岐する(続きのユーザー入力を差し替える)。対象外なら undefined */
+  onBranchFrom?: (messageId: string) => void;
 }
 
 /** 兄弟分岐の切り替え `< 2/3 >` */
@@ -261,6 +264,7 @@ export function MessageItem({
   onRegenerate,
   onSwitchBranch,
   onEdit,
+  onBranchFrom,
 }: MessageItemProps) {
   const approvals = useStreamStore((s) => s.approvals);
   const [editing, setEditing] = useState(false);
@@ -363,7 +367,7 @@ export function MessageItem({
         {!isUser && !streaming && finish !== 'tool_calls' && (
           <UsageLine usage={stream?.usage ?? message.usage} model={message.model} />
         )}
-        {!isUser && !streaming && (isLastAssistant || branch) && (
+        {!isUser && !streaming && (isLastAssistant || branch || onBranchFrom) && (
           <div className="mt-1 flex items-center gap-2">
             {branch && <BranchNav branch={branch} onSwitch={onSwitchBranch} />}
             {isLastAssistant && onRegenerate && (
@@ -374,6 +378,17 @@ export function MessageItem({
                 onClick={() => onRegenerate(message.id)}
               >
                 <RefreshCw size={12} /> 再生成
+              </Button>
+            )}
+            {onBranchFrom && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="opacity-0 transition-opacity group-hover:opacity-100"
+                title="この応答はそのままに、続きのユーザー入力と添付を差し替えて新しい分岐を作る"
+                onClick={() => onBranchFrom(message.id)}
+              >
+                <GitBranch size={12} /> ここから分岐
               </Button>
             )}
           </div>

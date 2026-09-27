@@ -11,6 +11,7 @@ export function MessageList({
   onRegenerate,
   onSwitchBranch,
   onEdit,
+  onBranchFrom,
 }: {
   conversationId: string;
   messages: Message[];
@@ -18,6 +19,7 @@ export function MessageList({
   onRegenerate: (messageId: string) => void;
   onSwitchBranch: (messageId: string) => void;
   onEdit: (messageId: string, text: string) => void;
+  onBranchFrom: (messageId: string) => void;
 }) {
   const streams = useStreamStore((s) => s.streams);
   const running = useStreamStore((s) => !!s.running[conversationId]);
@@ -79,6 +81,16 @@ export function MessageList({
     navFor[target] = b;
   }
 
+  // 「ここから分岐」を出す assistant: 応答グループの末尾で、後ろにユーザー発言が続いているもの
+  // (末尾の応答は普通に入力すれば続きになるので不要)
+  const branchable = new Set<string>();
+  for (let i = 0; i < messages.length; i++) {
+    const m = messages[i]!;
+    if (m.role !== 'assistant' || m.kind !== 'normal') continue;
+    const next = messages[i + 1];
+    if (next && next.role === 'user' && next.kind === 'normal') branchable.add(m.id);
+  }
+
   return (
     <div ref={containerRef} onScroll={onScroll} className="min-h-0 flex-1 overflow-y-auto">
       <div className="mx-auto max-w-4xl py-2">
@@ -97,6 +109,7 @@ export function MessageList({
             highlighted={m.id === highlightedId}
             // run 全体(ツールループ含む)が終わるまで再生成・編集・分岐切替は出さない
             {...(running ? {} : { onRegenerate, onSwitchBranch, onEdit })}
+            {...(!running && branchable.has(m.id) ? { onBranchFrom } : {})}
           />
         ))}
         <div ref={bottomRef} />

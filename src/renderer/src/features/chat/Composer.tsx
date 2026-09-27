@@ -1,5 +1,12 @@
 import { Loader2, Paperclip, SendHorizontal, Square } from 'lucide-react';
-import { useEffect, useRef, useState, type ClipboardEvent, type KeyboardEvent } from 'react';
+import {
+  useEffect,
+  useRef,
+  useState,
+  type ClipboardEvent,
+  type KeyboardEvent,
+  type ReactNode,
+} from 'react';
 import type { AttachmentRef, Conversation } from '@shared/schemas';
 import { Button } from '@renderer/components/ui/button';
 import { addFile } from '@renderer/lib/attachments';
@@ -17,6 +24,10 @@ export interface ComposerProps {
   setPending: (updater: (prev: PendingAttachment[]) => PendingAttachment[]) => void;
   onSend: (text: string, attachments: AttachmentRef[]) => void;
   onAbort: () => void;
+  /** 外から本文を差し込む(手動分岐のプリフィル)。key が変わった時だけ反映する */
+  draft?: { key: number; text: string } | undefined;
+  /** 入力欄の上に出す案内(分岐作成中など) */
+  banner?: ReactNode;
 }
 
 export function Composer({
@@ -29,6 +40,8 @@ export function Composer({
   setPending,
   onSend,
   onAbort,
+  draft,
+  banner,
 }: ComposerProps) {
   const [text, setText] = useState('');
   const [adding, setAdding] = useState(0);
@@ -36,6 +49,17 @@ export function Composer({
   const ref = useRef<HTMLTextAreaElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const composing = useRef(false);
+
+  // draft.key が変わった時だけ本文を差し替える(描画中の setState で同期し、effect の連鎖を避ける)
+  const draftKey = draft?.key ?? 0;
+  const [appliedDraftKey, setAppliedDraftKey] = useState(0);
+  if (draftKey !== appliedDraftKey) {
+    setAppliedDraftKey(draftKey);
+    setText(draft?.text ?? '');
+  }
+  useEffect(() => {
+    if (draftKey !== 0) ref.current?.focus();
+  }, [draftKey]);
 
   // 高さを内容に合わせる(最大 12 行程度)
   useEffect(() => {
@@ -95,6 +119,7 @@ export function Composer({
   return (
     <div className="border-border bg-surface border-t px-4 py-3">
       <div className="mx-auto max-w-4xl">
+        {banner}
         <AttachmentChips
           items={pending}
           nativeVideo={nativeVideo}

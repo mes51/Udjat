@@ -1,5 +1,5 @@
 import { useQueryClient } from '@tanstack/react-query';
-import { Download, Loader2, RefreshCw, SlidersHorizontal } from 'lucide-react';
+import { Download, GitBranch, Loader2, RefreshCw, SlidersHorizontal } from 'lucide-react';
 import { DropdownMenu } from 'radix-ui';
 import { useCallback, useRef, useState, type DragEvent } from 'react';
 import type { AttachmentRef } from '@shared/schemas';
@@ -44,6 +44,13 @@ export function ChatPane({ conversationId }: { conversationId: string }) {
   const [dragging, setDragging] = useState(false);
   const dragDepth = useRef(0);
   const caps = useCapabilities(conv.data?.serverProfileId ?? null, conv.data?.model ?? null);
+  // 手動分岐(M8): 「ここから分岐」で active leaf を戻し、続きの入力を差し替えてもらう
+  const [branching, setBranching] = useState<{
+    assistantId: string;
+    previousLeafId: string | null;
+    count: number;
+  } | null>(null);
+  const [draft, setDraft] = useState<{ key: number; text: string }>({ key: 0, text: '' });
 
   const c = conv.data;
   const canSend = !!c?.serverProfileId && !!c.model;
@@ -51,6 +58,13 @@ export function ChatPane({ conversationId }: { conversationId: string }) {
     (updater: (prev: PendingAttachment[]) => PendingAttachment[]) => setPendingState(updater),
     [],
   );
+
+  // 会話を切り替えたら分岐作成の状態は破棄する(leaf は戻さない。分岐ナビから戻れる)
+  const [branchingConv, setBranchingConv] = useState(conversationId);
+  if (branchingConv !== conversationId) {
+    setBranchingConv(conversationId);
+    setBranching(null);
+  }
 
   // ドラッグ&ドロップ(チャット画面全体で受ける)
   const onDragEnter = (e: DragEvent<HTMLDivElement>) => {
@@ -88,12 +102,70 @@ export function ChatPane({ conversationId }: { conversationId: string }) {
     setSendError(null);
     try {
       const handle = await invoke('chat:send', { conversationId, text, attachments });
+      setBranching(null);
       begin(handle);
       await invalidateConversationView(qc, conversationId);
       await qc.invalidateQueries({ queryKey: keys.conversations });
     } catch (e) {
       setSendError((e as Error).message);
     }
+  };
+
+  /** assistant 応答の直後から分岐: leaf を戻し、元の続きのユーザー入力と添付をプリフィルする */
+  const branchFrom = async (assistantId: string) => {
+    if (!c) return;
+    setSendError(null);
+    const msgs = path.data ?? [];
+    const idx = msgs.findIndex((m) => m.id === assistantId);
+    if (idx < 0) return;
+    const rest = msgs.slice(idx + 1);
+    const nextUser = rest.find((m) => m.role === 'user' && m.kind === 'normal');
+    try {
+      let text = '';
+      const prefill: PendingAttachment[] = [];
+      if (nextUser) {
+        text = nextUser.parts
+          .filter((p) => p.type === 'text')
+          .map((p) => p.text)
+          .join('\n');
+        for (const p of nextUser.parts) {
+          if (p.type === 'text' || p.type === 'reasoning') continue;
+          const a = await invoke('attachments:get', { id: p.attachmentId });
+          // 自動生成されたコンタクトシート等の派生物は引き継がない(送信時に作り直される)
+          if (!a || a.meta.derivedFrom) continue;
+          prefill.push({
+            attachment: a,
+            sendMode: p.type === 'video' && p.sendMode ? p.sendMode : 'tools',
+          });
+        }
+      }
+      // 送信直後はキャッシュの activeLeafId が古いことがあるので main から取り直す
+      const fresh = await invoke('conversations:get', { id: conversationId });
+      const previousLeafId = branching?.previousLeafId ?? fresh?.activeLeafId ?? c.activeLeafId;
+      await update.mutateAsync({ id: conversationId, patch: { activeLeafId: assistantId } });
+      await invalidateConversationView(qc, conversationId);
+      setPendingState(prefill);
+      setDraft((d) => ({ key: d.key + 1, text }));
+      setBranching({ assistantId, previousLeafId, count: rest.length });
+    } catch (e) {
+      setSendError((e as Error).message);
+    }
+  };
+
+  const cancelBranching = async () => {
+    if (!branching) return;
+    try {
+      await update.mutateAsync({
+        id: conversationId,
+        patch: { activeLeafId: branching.previousLeafId },
+      });
+      await invalidateConversationView(qc, conversationId);
+    } catch (e) {
+      setSendError((e as Error).message);
+    }
+    setBranching(null);
+    setPendingState([]);
+    setDraft((d) => ({ key: d.key + 1, text: '' }));
   };
 
   const regenerate = async (messageId: string) => {
@@ -261,6 +333,7 @@ export function ChatPane({ conversationId }: { conversationId: string }) {
           onRegenerate={(id) => void regenerate(id)}
           onSwitchBranch={(id) => void switchBranch(id)}
           onEdit={(id, text) => void edit(id, text)}
+          onBranchFrom={(id) => void branchFrom(id)}
         />
         {sendError && <div className="px-4 py-1 text-xs text-red-400">{sendError}</div>}
         {notice && (
@@ -281,6 +354,24 @@ export function ChatPane({ conversationId }: { conversationId: string }) {
           setPending={setPending}
           onSend={(t, refs) => void send(t, refs)}
           onAbort={abort}
+          draft={draft}
+          banner={
+            branching && (
+              <div
+                className="border-accent/40 bg-accent/10 mb-2 flex items-center gap-2 rounded-md border px-3 py-1.5 text-xs"
+                role="status"
+              >
+                <GitBranch size={13} className="text-accent shrink-0" />
+                <span className="min-w-0 flex-1">
+                  分岐を作成中: 送信すると、この応答の続きとして新しい分岐になります(元の続き{' '}
+                  {branching.count} 件は分岐ナビで戻れます)
+                </span>
+                <Button variant="ghost" size="sm" onClick={() => void cancelBranching()}>
+                  やめる
+                </Button>
+              </div>
+            )
+          }
         />
         {dragging && (
           <div className="bg-accent/10 border-accent pointer-events-none absolute inset-0 z-10 flex items-center justify-center border-2 border-dashed text-sm">
