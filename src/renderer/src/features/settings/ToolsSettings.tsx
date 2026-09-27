@@ -236,12 +236,34 @@ function CategoryPolicies({ category }: { category: ToolCategory }) {
   );
 }
 
+function SystemGuideSetting() {
+  const guide = useSetting<boolean>('tools.systemGuide');
+  const save = useSettingMutation();
+  return (
+    <label className="flex items-center gap-2 text-sm">
+      <input
+        type="checkbox"
+        checked={guide.data !== false}
+        disabled={!guide.isFetched || save.isPending}
+        onChange={(e) => save.mutate({ key: 'tools.systemGuide', value: e.target.checked })}
+      />
+      ツールを送る時、システムプロンプトに「ツール利用の手引き」を付ける
+    </label>
+  );
+}
+
 export function ToolsSettings() {
   const tools = useTools();
   const cats = groupToolsByCategory(tools.data ?? []);
 
   return (
     <div className="flex flex-col gap-6">
+      <Section className="gap-3">
+        <SectionTitle description="ローカルモデルはツールの説明文を読み飛ばしがちなので、実行環境(OS、許可フォルダ)や run_javascript の要点(QuickJS であること、return と権限宣言、バイナリは udjat.download)を短い箇条書きで system に添えます">
+          ツール利用の手引き
+        </SectionTitle>
+        <SystemGuideSetting />
+      </Section>
       <Section>
         <SectionTitle description="「自動で実行」は確認なしに実行、「毎回確認」は承認カードを出す、「無効」はモデルに渡さない。カテゴリの ON/OFF は入力欄のチップ、会話ごとの個別 ON/OFF は会話の設定で">
           ツールの承認ポリシー

@@ -98,6 +98,37 @@ throw new Error('timeout');
 | \`console.log\` の結果が返らない              | 最後に \`return 値\` する(console 出力も stdout として返る)   |
 `;
 
+/** コード本文から Node.js / ブラウザ前提の書き方を見つけてヒントにする(実行が失敗した時だけ添える) */
+export function staticHints(code: string): string[] {
+  const hints: string[] = [];
+  const has = (re: RegExp) => re.test(code);
+  if (has(/\brequire\s*\(/) || has(/\bimport\s*\(/) || has(/^\s*import\s.+\sfrom\s/m))
+    hints.push(
+      'require / import は使えません(モジュールは無い)。ファイルは udjat.readFile / udjat.writeFile、HTTP は fetch を使う',
+    );
+  if (
+    has(
+      /\bfs\.(readFile|writeFile|readFileSync|writeFileSync|existsSync|statSync|mkdirSync|promises)/,
+    )
+  )
+    hints.push(
+      'fs は無い。udjat.readFile(path) / udjat.writeFile(path, data) を使う(allow_read / allow_write の宣言が必要)',
+    );
+  if (has(/\.blob\s*\(\)/) || has(/\bFileReader\b/) || has(/\bBlob\b/))
+    hints.push(
+      'Blob / FileReader は無い。バイナリの取得は udjat.download(url) を使う(添付として取り込まれ、画像はそのまま見える)。小さいものは await res.bytes()',
+    );
+  if (has(/\bprocess\.(env|argv|cwd|platform)/))
+    hints.push('process は無い。必要な値はコードに直接書く');
+  if (has(/\bBuffer\.(from|alloc)/))
+    hints.push('Buffer は無い。udjat.base64.encode / decode、TextEncoder / TextDecoder を使う');
+  if (has(/(^|[^A-Za-z0-9_])\/tmp\//) || has(/~\//))
+    hints.push('/tmp や ~ は無い(Windows)。許可フォルダの絶対パスを使う');
+  if (has(/\bnew\s+URL\s*\(/) || has(/\bURLSearchParams\b/))
+    hints.push('URL / URLSearchParams は無い。文字列で組み立てる');
+  return hints;
+}
+
 /** ReferenceError の名前から、対応する書き方のヒントを返す(無ければ null) */
 export function referenceHint(error: string): string | null {
   const m = /ReferenceError: '?([A-Za-z_$][\w$]*)'? is not defined/.exec(error);
@@ -128,4 +159,10 @@ export function referenceHint(error: string): string | null {
   const hint = hints[name];
   if (!hint) return null;
   return `${hint}。詳しくは js_sandbox_reference ツールを参照`;
+}
+
+/** QuickJS の "TypeError: not a function"(名前が出ない)向けの汎用ヒント */
+export function typeErrorHint(error: string): string | null {
+  if (!/TypeError: (not a function|.* is not a function)/.test(error)) return null;
+  return '存在しない関数を呼んでいます。ブラウザ / Node.js 固有の API(res.blob().arrayBuffer 以外の Blob 操作、FileReader、fs.*、path.* など)は無いので、js_sandbox_reference ツールで使える API を確認してください';
 }

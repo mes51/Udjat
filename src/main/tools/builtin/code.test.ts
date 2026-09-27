@@ -168,6 +168,29 @@ describe('run_javascript tool', () => {
     expect(runJs!.background?.({})).toBe(false);
   });
 
+  it('adds hints for browser / Node patterns found in the code, and notes a missing return', async () => {
+    const [runJs] = createCodeTools({ store });
+    const r = await runJs!.execute(
+      {
+        code: `const res = { blob() {} }; const b = await res.blob(); const fs = await import('fs'); return fs;`,
+      },
+      ctx,
+    );
+    const payload = JSON.parse(r.text) as { ok: boolean; error: string };
+    expect(payload.ok).toBe(false);
+    expect(payload.error).toContain('ヒント:');
+    expect(payload.error).toContain('require / import は使えません');
+    expect(payload.error).toContain('Blob / FileReader は無い');
+    const noReturn = await runJs!.execute(
+      { code: `console.log('x'); function f() { return 1; } f();` },
+      ctx,
+    );
+    const p2 = JSON.parse(noReturn.text) as { ok: boolean; note?: string; result?: unknown };
+    expect(p2.ok).toBe(true);
+    expect(p2.result).toBeUndefined();
+    expect(p2.note).toContain('return');
+  });
+
   it('rejects relative paths in allow_* and reports timeouts', async () => {
     const rel = await tool().execute({ code: 'return 1', allow_read: ['relative/path'] }, ctx);
     expect(rel.isError).toBe(true);

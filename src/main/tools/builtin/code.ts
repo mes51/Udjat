@@ -4,7 +4,13 @@ import type { MediaStore } from '@main/media/store';
 import type { RegisteredTool, ToolContext, ToolMedia } from '../types';
 import { fail, num, ok, str } from '../types';
 import { runJavaScript, type SandboxHost } from './js-sandbox';
-import { referenceHint, SANDBOX_REFERENCE, SANDBOX_SUMMARY } from './js-sandbox-reference';
+import {
+  referenceHint,
+  SANDBOX_REFERENCE,
+  SANDBOX_SUMMARY,
+  staticHints,
+  typeErrorHint,
+} from './js-sandbox-reference';
 import { describeDownloaded, downloadToStore, MAX_DOWNLOAD_BYTES } from './download';
 
 /**
@@ -333,10 +339,17 @@ export function createCodeTools({ store, callTool }: CodeToolDeps): RegisteredTo
         stderr: r.stderr,
         duration_ms: r.durationMs,
       };
-      if (r.error) {
-        // Node.js 前提の名前で失敗した時は、対応する書き方を添える(M17)
-        const hint = referenceHint(r.error);
-        payload['error'] = hint ? `${r.error}\nヒント: ${hint}` : r.error;
+      if (!r.ok) {
+        // Node.js / ブラウザ前提の書き方で失敗した時は、対応する書き方を添える(M17 / M19)
+        const error = r.error || 'Error: (no message)';
+        const hints = [referenceHint(error), typeErrorHint(error), ...staticHints(code)].filter(
+          (h): h is string => !!h,
+        );
+        payload['error'] =
+          hints.length > 0 ? `${error}\nヒント: ${[...new Set(hints)].join(' / ')}` : error;
+      } else if (r.result === undefined) {
+        payload['note'] =
+          'result が無い: 値を返すには最後に return する(関数を呼ぶだけでは返らない)。console 出力は stdout にある';
       }
       if (r.truncated) payload['truncated'] = '出力が上限で打ち切られました';
       if (downloadedMedia.length > 0)

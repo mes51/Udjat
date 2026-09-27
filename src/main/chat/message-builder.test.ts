@@ -87,6 +87,30 @@ describe('buildChatRequest', () => {
     ]);
   });
 
+  it('appends the tool guide to the system prompt only when tools are sent', async () => {
+    const tools = [{ name: 'run_javascript', description: 'x', parameters: {} }];
+    const withTools = await buildChatRequest({
+      conversation,
+      profile,
+      capabilities: guessFromModelName('ollama', 'qwen3:8b'),
+      tools,
+      toolGuide: '# ツール利用の手引き\n- QuickJS',
+      path: [msg({ id: '1', role: 'user', parts: [{ type: 'text', text: 'hi' }] })],
+    });
+    expect(withTools.messages[0]).toEqual({
+      role: 'system',
+      text: '丁寧に答えて\n\n# ツール利用の手引き\n- QuickJS',
+    });
+    const noTools = await buildChatRequest({
+      conversation,
+      profile,
+      capabilities: guessFromModelName('ollama', 'qwen3:8b'),
+      toolGuide: '# ツール利用の手引き',
+      path: [msg({ id: '1', role: 'user', parts: [{ type: 'text', text: 'hi' }] })],
+    });
+    expect(noTools.messages[0]).toEqual({ role: 'system', text: '丁寧に答えて' });
+  });
+
   it('includes reasoning when asked and fails without a model', async () => {
     const req = await buildChatRequest({
       conversation,

@@ -224,6 +224,16 @@ const PRELUDE = String.raw`
       json: () => Promise.resolve().then(() => JSON.parse(r.base64 ? utf8decode(b64decode(r.base64)) : r.text)),
       bytes: () => Promise.resolve(r.base64 ? b64decode(r.base64) : utf8encode(r.text)),
       arrayBuffer: () => Promise.resolve((r.base64 ? b64decode(r.base64) : utf8encode(r.text)).buffer),
+      blob: () => {
+        const bytes = r.base64 ? b64decode(r.base64) : utf8encode(r.text);
+        return Promise.resolve(Object.freeze({
+          size: bytes.length,
+          type: h['content-type'] || '',
+          bytes: () => Promise.resolve(bytes),
+          arrayBuffer: () => Promise.resolve(bytes.buffer),
+          text: () => Promise.resolve(utf8decode(bytes)),
+        }));
+      },
     });
   };
   globalThis.fetch = (url, init) => udjat.fetch(String(url), init).then((r) => toResponse(String(url), r));
@@ -237,7 +247,8 @@ function errorText(vm: QuickJSContext, handle: QuickJSHandle): string {
     const head = `${name ?? 'Error'}: ${message ?? ''}`;
     return stack && !stack.startsWith(head) ? `${head}\n${stack}` : (stack ?? head);
   }
-  return String(e);
+  // 文字列以外(undefined など)で reject された時も空にしない(動的 import の失敗など)
+  return String(e) || 'Error: (no message)';
 }
 
 export async function runJavaScript(code: string, opts: RunOptions): Promise<RunResult> {
@@ -339,7 +350,24 @@ export async function runJavaScript(code: string, opts: RunOptions): Promise<Run
         }, 100);
         void settled.finally(() => clearInterval(t));
       });
-      const r = await Promise.race([settled, timeout]);
+      let r = await Promise.race([settled, timeout]);
+      // Node.js と同じく、await し忘れた fetch などのホスト呼び出しが残っていれば終わるまで待つ
+      // (結果は返らないが console 出力は揃う)
+      if (r !== 'timeout' && !r.error && pendingHost > 0) {
+        const drained = new Promise<'drained' | 'timeout'>((resolve) => {
+          const t = setInterval(() => {
+            if (pendingHost === 0) {
+              clearInterval(t);
+              resolve('drained');
+            } else if (Date.now() > deadline || opts.signal?.aborted) {
+              clearInterval(t);
+              resolve('timeout');
+            }
+          }, 20);
+        });
+        if ((await drained) === 'timeout') r = 'timeout';
+        else runtime.executePendingJobs();
+      }
       if (r === 'timeout') {
         out.error = opts.signal?.aborted
           ? 'aborted'

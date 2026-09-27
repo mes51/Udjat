@@ -27,6 +27,7 @@ import type { ServerProfileRepository } from '@main/db/repositories/server-profi
 import { getAdapter, resolveCapabilities } from '@main/providers';
 import type { ToolRegistry } from '@main/tools/registry';
 import { parseToolArgs } from '@main/tools/registry';
+import { buildToolGuide } from '@main/tools/guide';
 import type { ToolResult } from '@main/tools/types';
 import { newId } from '@main/util/id';
 import { fmt } from '@main/media/video-ops';
@@ -1019,6 +1020,10 @@ export class ChatService {
       path,
       capabilities,
       tools: toolDefs,
+      toolGuide:
+        this.deps.getSetting?.('tools.systemGuide') === false
+          ? null
+          : buildToolGuide(toolDefs, this.deps.getSetting ?? (() => null)),
       signal,
       ...(this.deps.media ? { resolver: this.deps.media.resolver } : {}),
     });

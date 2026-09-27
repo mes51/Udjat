@@ -13,6 +13,8 @@ export interface BuildInput {
   path: Message[];
   capabilities: Capabilities;
   tools?: ToolDefinition[];
+  /** ツール利用の手引き(system の末尾に付ける。M19) */
+  toolGuide?: string | null;
   /** thinking 系モデルの reasoning を履歴として送り返すか(既定: 送らない) */
   sendReasoning?: boolean;
   resolver?: MediaResolver;
@@ -52,7 +54,11 @@ export async function buildChatRequest(input: BuildInput): Promise<ChatRequest> 
   const messages: CanonicalMessage[] = [];
   // コンパクション(M14): パス上の最後の要約ノードより前は送らず、要約を system の末尾に付ける
   const { history, summary } = splitAtCompaction(path);
-  const system = [conversation.systemPrompt?.trim(), summary && COMPACTION_HEADER + summary]
+  const system = [
+    conversation.systemPrompt?.trim(),
+    input.tools && input.tools.length > 0 ? input.toolGuide : null,
+    summary && COMPACTION_HEADER + summary,
+  ]
     .filter((s): s is string => !!s)
     .join('\n\n');
   if (system) messages.push({ role: 'system', text: system });

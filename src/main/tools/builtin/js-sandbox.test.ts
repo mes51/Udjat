@@ -144,6 +144,49 @@ describe('js sandbox', () => {
     expect(calls).toEqual(['current_datetime {}', 'fs_write {"path":"x"}']);
   });
 
+  it('waits for un-awaited host calls before finishing, like Node, and offers blob()', async () => {
+    const r = await runJavaScript(
+      `async function submit() { const res = await fetch('https://api.example.com/jobs', { method: 'POST' }); const j = await res.json(); console.log('job', j.id); }
+       submit();`,
+      {
+        timeoutMs: 5000,
+        host: {
+          ...denyAll,
+          fetch: async () => {
+            await new Promise((r) => setTimeout(r, 50));
+            return {
+              status: 200,
+              headers: { 'content-type': 'application/json' },
+              text: '{"id":"job_1"}',
+              truncated: false,
+            };
+          },
+        },
+      },
+    );
+    expect(r.ok).toBe(true);
+    expect(r.result).toBeUndefined();
+    expect(r.stdout).toBe('job job_1\n');
+
+    const b = await runJavaScript(
+      `const res = await fetch('https://api.example.com/img'); const blob = await res.blob(); const bytes = await blob.bytes(); return { size: blob.size, type: blob.type, first: bytes[0] };`,
+      {
+        timeoutMs: 5000,
+        host: {
+          ...denyAll,
+          fetch: async () => ({
+            status: 200,
+            headers: { 'Content-Type': 'image/png' },
+            text: '',
+            truncated: false,
+            base64: 'AQID',
+          }),
+        },
+      },
+    );
+    expect(b.result).toEqual({ size: 3, type: 'image/png', first: 1 });
+  });
+
   it('interrupts infinite loops at the deadline', async () => {
     const r = await runJavaScript(`let i = 0; while (true) i++;`, {
       timeoutMs: 500,
