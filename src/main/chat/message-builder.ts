@@ -19,6 +19,27 @@ export interface BuildInput {
   signal?: AbortSignal;
 }
 
+const COMPACTION_HEADER =
+  '# Summary of the earlier conversation\n' +
+  'The messages before this point were compacted into the following summary. Continue the conversation from here, treating the summary as what actually happened. Attachment / tool ids mentioned in it remain valid.\n\n';
+
+/** パスを「最後の compaction 以降の履歴」と「その要約文」に分ける */
+export function splitAtCompaction(path: Message[]): { history: Message[]; summary: string | null } {
+  let idx = -1;
+  for (let i = path.length - 1; i >= 0; i--) {
+    if (path[i]!.kind === 'compaction') {
+      idx = i;
+      break;
+    }
+  }
+  if (idx === -1) return { history: path, summary: null };
+  const summary = path[idx]!.parts.filter((p) => p.type === 'text')
+    .map((p) => p.text)
+    .join('\n')
+    .trim();
+  return { history: path.slice(idx + 1), summary: summary || null };
+}
+
 export function resolveModel(conversation: Conversation, profile: ServerProfile): string | null {
   return conversation.model ?? profile.defaultModel;
 }
@@ -29,10 +50,14 @@ export async function buildChatRequest(input: BuildInput): Promise<ChatRequest> 
   if (!model) throw new Error('モデルが選択されていません');
 
   const messages: CanonicalMessage[] = [];
-  const system = conversation.systemPrompt?.trim();
+  // コンパクション(M14): パス上の最後の要約ノードより前は送らず、要約を system の末尾に付ける
+  const { history, summary } = splitAtCompaction(path);
+  const system = [conversation.systemPrompt?.trim(), summary && COMPACTION_HEADER + summary]
+    .filter((s): s is string => !!s)
+    .join('\n\n');
   if (system) messages.push({ role: 'system', text: system });
 
-  for (const m of path) {
+  for (const m of history) {
     if (m.kind === 'note') continue;
     const cm = await toCanonical(
       m,

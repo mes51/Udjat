@@ -22,6 +22,10 @@ export function subscribeChatEvents(qc: QueryClient): () => void {
       // 常駐状態が変わったのでヘッダーの表示を取り直す
       void qc.invalidateQueries({ queryKey: ['models:status'] });
     }
+    if (t === 'compacting' && ev.event.state !== 'start') {
+      // 要約ノードが増えた(または失敗した)ので表示を取り直す
+      void invalidateConversationView(qc, ev.conversationId);
+    }
     if (t === 'run-end') {
       void invalidateConversationView(qc, ev.conversationId);
       // タイトル自動生成は run-end の後に走るので、少し遅らせてもう一度一覧を取り直す

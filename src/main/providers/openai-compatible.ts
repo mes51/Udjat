@@ -378,8 +378,22 @@ export class OpenAICompatibleAdapter implements ProviderAdapter {
         // 純粋な reasoning_effort 型(gpt-oss 等)は候補が返らないので一般的な 3 段を出す
         if (levels.length === 0 && st.reasoning_style === 'reasoning_effort')
           levels = ['low', 'medium', 'high'];
+        // 常駐中のモデルのコンテキスト長は /api/inference/monitor の context_length にある(M14)
+        let contextLength: number | undefined;
+        try {
+          const mon = await requestJson<{ context_length?: number | null }>(
+            profile,
+            '/api/inference/monitor',
+            { signal, timeoutMs: 8_000 },
+          );
+          if (typeof mon.context_length === 'number' && mon.context_length > 0)
+            contextLength = mon.context_length;
+        } catch {
+          /* 取れなくても他の情報は返す */
+        }
         return {
           id: model,
+          ...(contextLength ? { contextLength } : {}),
           name,
           loaded: true,
           capabilities: {

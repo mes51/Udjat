@@ -14,6 +14,7 @@ export const keys = {
   tools: ['tools'] as const,
   setting: (key: string) => ['setting', key] as const,
   modelStatus: (profileId: string) => ['models:status', profileId] as const,
+  contextUsage: (id: string) => ['context:usage', id] as const,
 };
 
 /** サーバーのモデル常駐状態(M10)。対応サーバーなら定期的に取り直す */
@@ -120,7 +121,28 @@ export function invalidateConversationView(qc: QueryClient, conversationId: stri
     qc.invalidateQueries({ queryKey: keys.conversation(conversationId) }),
     qc.invalidateQueries({ queryKey: keys.path(conversationId) }),
     qc.invalidateQueries({ queryKey: keys.branches(conversationId) }),
+    qc.invalidateQueries({ queryKey: keys.contextUsage(conversationId) }),
   ]).then(() => undefined);
+}
+
+/** 会話のコンテキスト使用量(M14)。応答終了・パス変更で取り直す */
+export function useContextUsage(conversationId: string | null) {
+  return useQuery({
+    queryKey: keys.contextUsage(conversationId ?? ''),
+    queryFn: () => invoke('context:usage', { conversationId: conversationId! }),
+    enabled: !!conversationId,
+    staleTime: 10_000,
+    retry: 0,
+  });
+}
+
+/** 会話の要約圧縮(M14) */
+export function useCompactMutation(conversationId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => invoke('chat:compact', { conversationId }),
+    onSuccess: () => invalidateConversationView(qc, conversationId),
+  });
 }
 
 export function useTools() {

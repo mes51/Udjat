@@ -1,5 +1,13 @@
 import { useQueryClient } from '@tanstack/react-query';
-import { Download, GitBranch, Loader2, RefreshCw, SlidersHorizontal } from 'lucide-react';
+import {
+  Download,
+  Gauge,
+  GitBranch,
+  Loader2,
+  RefreshCw,
+  Shrink,
+  SlidersHorizontal,
+} from 'lucide-react';
 import { DropdownMenu } from 'radix-ui';
 import { useCallback, useRef, useState, type DragEvent } from 'react';
 import type { AttachmentRef } from '@shared/schemas';
@@ -12,11 +20,14 @@ import {
   keys,
   useBranches,
   useCapabilities,
+  useCompactMutation,
+  useContextUsage,
   useConversation,
   useConversationMutations,
   useMessagePath,
   useModels,
   useProfiles,
+  useSetting,
 } from '@renderer/lib/queries';
 import { cn } from '@renderer/lib/utils';
 import { useStreamStore } from '@renderer/state/stream-store';
@@ -25,6 +36,7 @@ import type { PendingAttachment } from './AttachmentChips';
 import { Composer } from './Composer';
 import { ConversationSettings } from './ConversationSettings';
 import { MessageList } from './MessageList';
+import { ContextMeter, usageTone } from './ContextMeter';
 import { ModelResidency } from './ModelResidency';
 
 export function ChatPane({ conversationId }: { conversationId: string }) {
@@ -55,6 +67,54 @@ export function ChatPane({ conversationId }: { conversationId: string }) {
 
   const c = conv.data;
   const canSend = !!c?.serverProfileId && !!c.model;
+
+  // コンテキストが閾値を超えたら入力欄の上で圧縮を促す(M14)。自動圧縮 ON なら送信時に自動で行われる旨を出す
+  const usage = useContextUsage(canSend ? conversationId : null);
+  const autoCompact = useSetting<boolean>('context.autoCompact');
+  const threshold = useSetting<number>('context.compactThreshold');
+  const compact = useCompactMutation(conversationId);
+  const compacting = useStreamStore((s) => s.compacting[conversationId]);
+  const percent =
+    usage.data?.limit && usage.data.limit > 0
+      ? Math.round((usage.data.used / usage.data.limit) * 100)
+      : null;
+  const overThreshold = percent !== null && percent >= (threshold.data ?? 80);
+  const contextBanner = compacting ? (
+    <div
+      className="border-border bg-surface-2 mb-2 flex items-center gap-2 rounded-md border px-3 py-1.5 text-xs"
+      role="status"
+    >
+      <Loader2 size={13} className="animate-spin" /> 送信前に会話を要約して圧縮しています…
+    </div>
+  ) : overThreshold && !runningRunId ? (
+    <div
+      className={cn(
+        'mb-2 flex items-center gap-2 rounded-md border px-3 py-1.5 text-xs',
+        usageTone(percent) === 'danger'
+          ? 'border-danger/40 bg-danger/10'
+          : 'border-warning/40 bg-warning/10',
+      )}
+      role="status"
+    >
+      <Gauge size={13} className="shrink-0" />
+      <span className="min-w-0 flex-1">
+        コンテキストの {percent}% を使っています。
+        {autoCompact.data === true
+          ? '次の送信時に自動で要約して圧縮します。'
+          : '要約して圧縮すると続けやすくなります(圧縮前の応答からの分岐は残ります)。'}
+      </span>
+      {autoCompact.data !== true && (
+        <Button
+          variant="secondary"
+          size="sm"
+          disabled={compact.isPending}
+          onClick={() => compact.mutate()}
+        >
+          <Shrink size={12} /> 今すぐ圧縮
+        </Button>
+      )}
+    </div>
+  ) : null;
   const setPending = useCallback(
     (updater: (prev: PendingAttachment[]) => PendingAttachment[]) => setPendingState(updater),
     [],
@@ -286,6 +346,7 @@ export function ChatPane({ conversationId }: { conversationId: string }) {
             model={c.model}
             conversationId={conversationId}
           />
+          {canSend && <ContextMeter conversationId={conversationId} running={!!runningRunId} />}
           {models.isError && !models.isFetching && (
             <span className="flex min-w-0 items-center gap-1 text-xs text-danger">
               <span className="truncate" title={String(models.error)}>
@@ -364,21 +425,24 @@ export function ChatPane({ conversationId }: { conversationId: string }) {
           onAbort={abort}
           draft={draft}
           banner={
-            branching && (
-              <div
-                className="border-accent/40 bg-accent/10 mb-2 flex items-center gap-2 rounded-md border px-3 py-1.5 text-xs"
-                role="status"
-              >
-                <GitBranch size={13} className="text-accent shrink-0" />
-                <span className="min-w-0 flex-1">
-                  分岐を作成中: 送信すると、この応答の続きとして新しい分岐になります(元の続き{' '}
-                  {branching.count} 件は分岐ナビで戻れます)
-                </span>
-                <Button variant="ghost" size="sm" onClick={() => void cancelBranching()}>
-                  やめる
-                </Button>
-              </div>
-            )
+            <>
+              {contextBanner}
+              {branching && (
+                <div
+                  className="border-accent/40 bg-accent/10 mb-2 flex items-center gap-2 rounded-md border px-3 py-1.5 text-xs"
+                  role="status"
+                >
+                  <GitBranch size={13} className="text-accent shrink-0" />
+                  <span className="min-w-0 flex-1">
+                    分岐を作成中: 送信すると、この応答の続きとして新しい分岐になります(元の続き{' '}
+                    {branching.count} 件は分岐ナビで戻れます)
+                  </span>
+                  <Button variant="ghost" size="sm" onClick={() => void cancelBranching()}>
+                    やめる
+                  </Button>
+                </div>
+              )}
+            </>
           }
         />
         {dragging && (

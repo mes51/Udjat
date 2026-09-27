@@ -88,7 +88,18 @@ export function MessageList({
     const m = messages[i]!;
     if (m.role !== 'assistant' || m.kind !== 'normal') continue;
     const next = messages[i + 1];
-    if (next && next.role === 'user' && next.kind === 'normal') branchable.add(m.id);
+    // 直後が要約ノードの応答も対象(圧縮前の履歴で続けたい時の入口)
+    if (next && next.role === 'user' && (next.kind === 'normal' || next.kind === 'compaction'))
+      branchable.add(m.id);
+  }
+
+  // 最後の要約ノードより前はモデルに送られないので薄く表示する(M14)
+  let lastCompaction = -1;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i]!.kind === 'compaction') {
+      lastCompaction = i;
+      break;
+    }
   }
 
   return (
@@ -99,10 +110,11 @@ export function MessageList({
             メッセージを送って会話を始めましょう。
           </div>
         )}
-        {messages.map((m) => (
+        {messages.map((m, i) => (
           <MessageItem
             key={m.id}
             message={m}
+            dimmed={i < lastCompaction}
             stream={streams[m.id]}
             isLastAssistant={m.id === lastAssistantId}
             branch={navFor[m.id]}

@@ -298,7 +298,11 @@ export type Usage = z.infer<typeof UsageSchema>;
 export const FinishReasonSchema = z.enum(['stop', 'length', 'tool_calls', 'aborted', 'error']);
 export type FinishReason = z.infer<typeof FinishReasonSchema>;
 
-export const MessageKindSchema = z.enum(['normal', 'tool-media', 'note']);
+/**
+ * normal: 通常、tool-media: ツール結果の画像配送(role: user)、note: UI 向けの注記(モデルに送らない)、
+ * compaction: 要約圧縮の節目(role: user。本文はそれ以前の会話の要約。以前のメッセージはモデルに送らない)
+ */
+export const MessageKindSchema = z.enum(['normal', 'tool-media', 'note', 'compaction']);
 export type MessageKind = z.infer<typeof MessageKindSchema>;
 
 export const MessageSchema = z.object({
@@ -378,6 +382,8 @@ export const ChatEventSchema = z.discriminatedUnion('type', [
   }),
   /** メッセージツリーが変わった(tool メッセージや次の assistant を追加した)ので path を再取得せよ */
   z.object({ type: z.literal('path-changed') }),
+  /** 送信前の自動コンパクション(要約中)の進行 */
+  z.object({ type: z.literal('compacting'), state: z.enum(['start', 'done', 'error']) }),
   /** run 全体の終了(ツールループを含む)。done はセグメント単位なので別に流す */
   z.object({ type: z.literal('run-end') }),
 ]);
@@ -391,3 +397,21 @@ export const ChatRunEventSchema = z.object({
   event: ChatEventSchema,
 });
 export type ChatRunEvent = z.infer<typeof ChatRunEventSchema>;
+
+/** 会話のコンテキスト使用量(M14)。used は直近の usage + その後の推定分 */
+export const ContextUsageSchema = z.object({
+  /** 現在の履歴を送った時に使う概算トークン数 */
+  used: z.number(),
+  /** 直近の応答でサーバーが数えた prompt + completion(無ければ null) */
+  measured: z.number().nullable(),
+  /** measured 以降に増えた分の推定(measured が無ければ全体の推定) */
+  estimated: z.number(),
+  /** コンテキスト上限(不明なら null) */
+  limit: z.number().nullable(),
+  /** 上限の取得元 */
+  limitSource: z.enum(['server', 'params', 'unknown']),
+  /** パス上の最後の compaction 以降のメッセージ数(compaction が無ければ全体) */
+  messagesInContext: z.number(),
+  compacted: z.boolean(),
+});
+export type ContextUsage = z.infer<typeof ContextUsageSchema>;

@@ -6,6 +6,7 @@ import {
   CapabilitiesSchema,
   CapabilityOverridesSchema,
   ChatRunEventSchema,
+  ContextUsageSchema,
   ConversationPatchSchema,
   ConversationSchema,
   McpServerInputSchema,
@@ -190,6 +191,15 @@ export const ipcInvokeSchema = {
   'chat:running': {
     input: z.object({ conversationId: z.string().min(1) }),
     output: z.string().nullable(),
+  },
+  /** 会話を要約して圧縮する(M14)。要約ノードの id を返す */
+  'chat:compact': {
+    input: z.object({ conversationId: z.string().min(1) }),
+    output: z.object({ messageId: z.string() }),
+  },
+  'context:usage': {
+    input: z.object({ conversationId: z.string().min(1) }),
+    output: ContextUsageSchema,
   },
 
   'tools:list': { input: z.undefined(), output: z.array(ToolInfoSchema) },

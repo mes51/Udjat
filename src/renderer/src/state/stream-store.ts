@@ -41,6 +41,8 @@ interface StreamStore {
   approvals: Record<string, PendingApproval>;
   /** conversationId -> 送信前にロード中のモデル名(M10) */
   modelLoading: Record<string, string>;
+  /** conversationId -> 送信前の自動コンパクション(要約)中か(M14) */
+  compacting: Record<string, boolean>;
   begin: (handle: { runId: string; conversationId: string; assistantMessageId: string }) => void;
   apply: (ev: ChatRunEvent) => void;
   clear: (messageId: string) => void;
@@ -67,6 +69,7 @@ export const useStreamStore = create<StreamStore>((set) => ({
   toolActivity: {},
   approvals: {},
   modelLoading: {},
+  compacting: {},
   begin: ({ runId, conversationId, assistantMessageId }) =>
     set((s) => {
       // invoke の往復中にイベントが先に届いていたら、その状態を尊重する
@@ -88,6 +91,13 @@ export const useStreamStore = create<StreamStore>((set) => ({
         const modelLoading = { ...s.modelLoading };
         delete modelLoading[ev.conversationId];
         return { running, modelLoading };
+      }
+      if (e.type === 'compacting') {
+        // 要約は run の外で走る(失敗しても run は始まらない)ので running には触れない
+        const compacting = { ...s.compacting };
+        if (e.state === 'start') compacting[ev.conversationId] = true;
+        else delete compacting[ev.conversationId];
+        return { compacting };
       }
       running[ev.conversationId] = ev.runId;
 

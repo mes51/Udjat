@@ -13,6 +13,7 @@ import { PdfService } from './media/pdf';
 import { createPdfTools } from './tools/builtin/pdf';
 import { createCodeTools } from './tools/builtin/code';
 import { createFileTools } from './tools/builtin/files';
+import { createAttachmentTextTool } from './tools/builtin/attachment-text';
 import { MediaStore } from './media/store';
 import { VideoOps } from './media/video-ops';
 import { createVideoTools } from './tools/builtin/video';
@@ -125,6 +126,7 @@ if (!app.requestSingleInstanceLock()) {
     for (const t of createCodeTools({ store: media })) tools.register(t);
     for (const t of createFileTools({ store: media, pdf, getSetting: (k) => settings.get(k) }))
       tools.register(t);
+    tools.register(createAttachmentTextTool(media));
     // 未参照の添付と孤立ファイルの掃除(起動を遅らせないよう少し後で)
     setTimeout(() => {
       try {
@@ -162,6 +164,7 @@ if (!app.requestSingleInstanceLock()) {
               width: Number(settings.get('video.native.width')) || 640,
               fps: Number(settings.get('video.native.fps')) || 2,
             }),
+            fileMaxChars: () => Number(settings.get('attachments.textMaxChars')) || 30_000,
           },
           pdf,
         ),

@@ -54,6 +54,13 @@ export function exportMarkdown(conversation: Conversation, path: Message[]): str
       lines.push('');
       continue;
     }
+    if (m.kind === 'compaction') {
+      lines.push('## 要約(ここまでの会話を圧縮)');
+      lines.push('');
+      lines.push(partsText(m));
+      lines.push('');
+      continue;
+    }
     if (m.kind === 'tool-media') {
       lines.push(
         `_(ツールが返した画像 ${m.parts.filter((p) => p.type === 'image' || p.type === 'video').length} 件をモデルに送信)_`,

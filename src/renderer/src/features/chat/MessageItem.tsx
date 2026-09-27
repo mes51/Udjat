@@ -11,6 +11,7 @@ import {
   Pencil,
   RefreshCw,
   Send,
+  Shrink,
   User,
 } from 'lucide-react';
 import { mediaUrl } from '@renderer/lib/attachments';
@@ -241,6 +242,53 @@ function ToolMediaStrip({ message }: { message: Message }) {
   );
 }
 
+/**
+ * 要約圧縮の節目(M14)。これより前のメッセージはモデルに送られない。
+ * 折りたたみで要約本文を見られる。圧縮前の履歴で続けるには、前の応答の「ここから分岐」を使う
+ */
+function CompactionCard({
+  message,
+  branch,
+  onSwitchBranch,
+}: {
+  message: Message;
+  branch?: BranchInfo | undefined;
+  onSwitchBranch?: ((messageId: string) => void) | undefined;
+}) {
+  const [open, setOpen] = useState(false);
+  const text = message.parts
+    .filter((p) => p.type === 'text')
+    .map((p) => p.text)
+    .join('\n');
+  return (
+    <div className="px-4 py-2" data-compaction={message.id}>
+      <div className="border-accent/40 bg-accent/10 rounded-md border text-xs">
+        <Collapsible.Root open={open} onOpenChange={setOpen}>
+          <div className="flex items-center gap-2 px-3 py-1.5">
+            <Collapsible.Trigger className="flex min-w-0 flex-1 items-center gap-1.5 text-left">
+              <ChevronRight size={14} className={cn('transition-transform', open && 'rotate-90')} />
+              <Shrink size={13} className="text-accent" />
+              <span className="font-medium">ここまでの会話を要約して圧縮しました</span>
+              <span className="text-fg-muted">
+                これより前はモデルに送られません(要約 {[...text].length} 文字)
+              </span>
+            </Collapsible.Trigger>
+            {branch && <BranchNav branch={branch} onSwitch={onSwitchBranch} />}
+          </div>
+          <Collapsible.Content>
+            <div className="border-border border-t px-3 py-2">
+              <Markdown text={text} />
+              <p className="text-fg-muted mt-2 text-[11px]">
+                圧縮前の履歴で続けるには、上の応答の「ここから分岐」を使ってください(要約は別の分岐として残ります)
+              </p>
+            </div>
+          </Collapsible.Content>
+        </Collapsible.Root>
+      </div>
+    </div>
+  );
+}
+
 function UsageLine({ usage, model }: { usage: Usage | null; model: string | null }) {
   if (!usage && !model) return null;
   const parts: string[] = [];
@@ -255,7 +303,19 @@ function UsageLine({ usage, model }: { usage: Usage | null; model: string | null
   return <div className="text-fg-muted/70 mt-1 text-[11px]">{parts.join(' · ')}</div>;
 }
 
-export function MessageItem({
+/** dimmed: 最後の要約ノードより前(モデルに送られない)のメッセージは薄く出す(M14) */
+export function MessageItem({ dimmed, ...props }: MessageItemProps & { dimmed?: boolean }) {
+  const inner = <MessageItemInner {...props} />;
+  return dimmed ? (
+    <div className="opacity-50" title="要約済みの範囲(モデルには送られません)">
+      {inner}
+    </div>
+  ) : (
+    inner
+  );
+}
+
+function MessageItemInner({
   message,
   stream,
   isLastAssistant,
@@ -281,6 +341,8 @@ export function MessageItem({
       </div>
     );
   }
+  if (message.kind === 'compaction')
+    return <CompactionCard message={message} branch={branch} onSwitchBranch={onSwitchBranch} />;
 
   const isUser = message.role === 'user';
   const streaming = stream?.status === 'streaming';

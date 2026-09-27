@@ -37,6 +37,8 @@ export const IPC_INVOKE_CHANNELS = [
   'chat:regenerate',
   'chat:abort',
   'chat:running',
+  'chat:compact',
+  'context:usage',
   'tools:list',
   'tools:setPolicy',
   'tools:approve',

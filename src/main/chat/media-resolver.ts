@@ -1,6 +1,8 @@
+import { readFileSync } from 'node:fs';
 import type { Attachment, Capabilities, Part } from '@shared/schemas';
 import type { PdfService } from '@main/media/pdf';
 import type { MediaStore } from '@main/media/store';
+import { looksText } from '@main/media/text-files';
 import {
   DEFAULT_NATIVE_CLIP,
   fmt,
@@ -30,7 +32,12 @@ export interface MediaResolverOptions {
   audioMaxSeconds?: number;
   /** PDF 本文として送る最大文字数 */
   pdfMaxChars?: number;
+  /** テキスト系ファイルの本文として送る最大文字数(続きは attachment_text ツール)。関数なら送信のたびに評価 */
+  fileMaxChars?: number | (() => number);
 }
+
+/** これより大きいテキストファイルは展開しない(attachment_text で読む) */
+const MAX_TEXT_FILE_BYTES = 32 * 1024 * 1024;
 
 export function videoNote(a: Attachment, range?: { startMs: number; endMs: number }): string {
   const dur = a.meta.durationMs !== undefined ? fmt(a.meta.durationMs) : '?';
@@ -113,7 +120,36 @@ export class MediaResolver {
     if (a.mime === 'application/pdf' && this.pdf) {
       return { text: await this.pdfText(a, signal) };
     }
-    return { text: `[添付ファイル: ${part.name ?? a.originalName}]` };
+    return { text: this.fileText(a) };
+  }
+
+  /**
+   * PDF 以外のファイル添付。テキストとして読めるなら本文を展開して送る(上限あり。続きは attachment_text ツール)。
+   * 読めないバイナリは種別と大きさの注記だけにする(M13)
+   */
+  private fileText(a: Attachment): string {
+    const fm = this.opts.fileMaxChars;
+    const maxChars = (typeof fm === 'function' ? fm() : fm) || 30_000;
+    const head = `[attached file: attachment_id=${a.id}, name="${a.originalName}", mime=${a.mime}, ${a.size} bytes]`;
+    let buf: Buffer;
+    try {
+      buf = readFileSync(this.store.pathOf(a));
+    } catch (e) {
+      return `${head}\n[読み込みに失敗: ${(e as Error).message.slice(0, 200)}]`;
+    }
+    if (a.size > MAX_TEXT_FILE_BYTES || !looksText(a.mime, a.originalName, buf.subarray(0, 8192))) {
+      return `${head}\n(binary or too large; the content is not included. run_javascript can read it with udjat.readAttachment(attachment_id, "base64"))`;
+    }
+    const full = buf.toString('utf8');
+    const body = full.slice(0, maxChars);
+    const truncated = full.length > body.length;
+    return (
+      `${head} ${full.length} chars${truncated ? `, first ${body.length} shown` : ''}\n` +
+      body +
+      (truncated
+        ? `\n[... truncated at ${body.length} chars. Use attachment_text(attachment_id="${a.id}", offset=${body.length}) to read more]`
+        : '')
+    );
   }
 
   private readonly pdfCache = new Map<string, string>();

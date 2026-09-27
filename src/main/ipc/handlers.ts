@@ -208,6 +208,8 @@ export function registerIpcHandlers(ctx: AppContext): void {
   handleIpc('chat:regenerate', ({ messageId }) => ctx.chat.regenerate(messageId));
   handleIpc('chat:abort', ({ runId }) => ctx.chat.abort(runId));
   handleIpc('chat:running', ({ conversationId }) => ctx.chat.isRunning(conversationId));
+  handleIpc('chat:compact', ({ conversationId }) => ctx.chat.compact(conversationId));
+  handleIpc('context:usage', ({ conversationId }) => ctx.chat.contextUsage(conversationId));
 
   // --- 添付 ---
   handleIpc('attachments:addBytes', ({ name, mime, base64 }) =>

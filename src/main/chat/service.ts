@@ -4,6 +4,7 @@ import type {
   Capabilities,
   ChatEvent,
   ChatRunEvent,
+  ContextUsage,
   FinishReason,
   Message,
   ModelInfo,
@@ -28,7 +29,8 @@ import { parseToolArgs } from '@main/tools/registry';
 import type { ToolResult } from '@main/tools/types';
 import { newId } from '@main/util/id';
 import { fmt } from '@main/media/video-ops';
-import { buildChatRequest, resolveModel } from './message-builder';
+import { buildChatRequest, resolveModel, splitAtCompaction } from './message-builder';
+import { estimateTokens, IMAGE_TOKENS } from '@shared/tokens';
 
 function fmtRange(r: { startMs: number; endMs: number }): string {
   return `${fmt(r.startMs)}-${fmt(r.endMs)}`;
@@ -114,7 +116,13 @@ export class ChatService {
       ...parts,
     ];
 
-    const parentId = input.parentId === undefined ? conv.activeLeafId : input.parentId;
+    // 自動コンパクション(M14): active leaf の下に続ける時だけ。閾値を超えていれば先に要約ノードを挟む
+    let baseLeafId = conv.activeLeafId;
+    if (input.parentId === undefined && this.deps.getSetting?.('context.autoCompact') === true) {
+      const compacted = await this.maybeAutoCompact(conv.id);
+      if (compacted) baseLeafId = compacted;
+    }
+    const parentId = input.parentId === undefined ? baseLeafId : input.parentId;
     const user = messages.create({
       conversationId: conv.id,
       parentId,
@@ -391,6 +399,201 @@ export class ChatService {
     const profile = id ? this.deps.profiles.get(id) : null;
     if (!profile) throw new Error('サーバープロファイルが設定されていません');
     return profile;
+  }
+
+  // ---------------------------------------------------------------------------
+  // コンテキスト使用量とコンパクション(M14。docs/plan/09-context-and-compaction.md)
+  // ---------------------------------------------------------------------------
+
+  /** 現在の表示パスをそのまま送った時のコンテキスト使用量の概算と上限 */
+  async contextUsage(conversationId: string): Promise<ContextUsage> {
+    const { conversations, messages, tools } = this.deps;
+    const conv = conversations.get(conversationId);
+    if (!conv) throw new Error('会話が見つかりません');
+    const path = conv.activeLeafId ? messages.pathToRoot(conv.activeLeafId) : [];
+    const { history, summary } = splitAtCompaction(path);
+    const profile = conv.serverProfileId ? this.deps.profiles.get(conv.serverProfileId) : null;
+    const model = profile ? resolveModel(conv, profile) : null;
+
+    // 直近の usage(サーバーが数えた prompt + completion)を基準にし、それ以降のメッセージを推定で足す
+    let measured: number | null = null;
+    let measuredAt = -1;
+    for (let i = history.length - 1; i >= 0; i--) {
+      const m = history[i]!;
+      if (m.role === 'assistant' && m.usage?.promptTokens !== undefined) {
+        measured = m.usage.promptTokens + (m.usage.completionTokens ?? 0);
+        measuredAt = i;
+        break;
+      }
+    }
+    let estimated = 0;
+    for (let i = measuredAt + 1; i < history.length; i++)
+      estimated += this.estimateMessage(history[i]!);
+    if (measured === null) {
+      // usage が無い(まだ送っていない / サーバーが返さない)時は system・要約・ツール定義も足す
+      estimated += estimateTokens(conv.systemPrompt ?? '') + estimateTokens(summary ?? '');
+      if (profile && model) {
+        try {
+          const caps = await this.capabilitiesFor(profile, model);
+          if (caps.tools)
+            estimated += estimateTokens(
+              JSON.stringify(
+                tools.definitionsFor(caps, {
+                  disabledCategories: conv.disabledCategories,
+                  disabledTools: conv.disabledTools,
+                }),
+              ),
+            );
+        } catch {
+          /* 推定なので無視 */
+        }
+      }
+    }
+
+    let limit: number | null = null;
+    let limitSource: ContextUsage['limitSource'] = 'unknown';
+    const paramLimit = conv.params.contextLength ?? profile?.defaultParams.contextLength;
+    if (paramLimit) {
+      limit = paramLimit;
+      limitSource = 'params';
+    } else if (profile && model) {
+      const info = await this.describeModel(profile, model);
+      if (info?.contextLength) {
+        limit = info.contextLength;
+        limitSource = 'server';
+      }
+    }
+    return {
+      used: (measured ?? 0) + estimated,
+      measured,
+      estimated,
+      limit,
+      limitSource,
+      messagesInContext: history.filter((m) => m.kind !== 'note').length,
+      compacted: summary !== null,
+    };
+  }
+
+  /** メッセージ 1 件の概算トークン(送る形に近い見積もり。reasoning は送らないので数えない) */
+  private estimateMessage(m: Message): number {
+    let n = 4; // ロール等の枠
+    for (const p of m.parts) {
+      if (p.type === 'text') n += estimateTokens(p.text);
+      else if (p.type === 'image') n += IMAGE_TOKENS;
+      else if (p.type === 'video') n += p.sendMode === 'native' ? IMAGE_TOKENS * 8 : 80;
+      else if (p.type === 'audio') n += 500;
+      else if (p.type === 'file') {
+        const a = this.deps.media?.store.get(p.attachmentId);
+        n += a ? Math.ceil(Math.min(a.size, 30_000) / 3) : 100;
+      }
+    }
+    if (m.toolCalls) for (const c of m.toolCalls) n += estimateTokens(c.name + c.args) + 8;
+    return n;
+  }
+
+  /** 閾値を超えていれば要約ノードを作り、その id を返す。超えていなければ null */
+  private async maybeAutoCompact(conversationId: string): Promise<string | null> {
+    const threshold = Number(this.deps.getSetting?.('context.compactThreshold')) || 80;
+    const usage = await this.contextUsage(conversationId);
+    if (!usage.limit || (usage.used / usage.limit) * 100 < threshold) return null;
+    const conv = this.deps.conversations.get(conversationId)!;
+    const tempRunId = newId();
+    const emit = (state: 'start' | 'done' | 'error') =>
+      this.deps.emit({
+        runId: tempRunId,
+        conversationId,
+        messageId: conv.activeLeafId ?? '',
+        event: { type: 'compacting', state },
+      });
+    emit('start');
+    try {
+      const r = await this.compact(conversationId);
+      emit('done');
+      return r.messageId;
+    } catch (e) {
+      emit('error');
+      throw new Error(`自動コンパクションに失敗しました: ${(e as Error).message}`);
+    }
+  }
+
+  /**
+   * 表示中のパスを要約して kind: compaction の節目ノードを末尾に追加する。
+   * それ以前のメッセージは以後モデルに送らない(UI には残る)。圧縮前の位置から分岐すれば元の履歴で続けられる。
+   */
+  async compact(conversationId: string): Promise<{ messageId: string }> {
+    const { conversations, messages } = this.deps;
+    const conv = conversations.get(conversationId);
+    if (!conv) throw new Error('会話が見つかりません');
+    if (this.isRunning(conv.id)) throw new Error('この会話は応答生成中です');
+    const profile = this.requireProfile(conv.serverProfileId);
+    const model = resolveModel(conv, profile);
+    if (!model) throw new Error('モデルが選択されていません');
+    if (!conv.activeLeafId) throw new Error('要約する会話がありません');
+    const path = messages.pathToRoot(conv.activeLeafId);
+    const { history, summary: previous } = splitAtCompaction(path);
+    const meaningful = history.filter(
+      (m) => m.kind === 'normal' && (m.role === 'user' || m.role === 'assistant'),
+    );
+    if (meaningful.length < 2) throw new Error('要約するほどの会話がまだありません');
+
+    const usage = await this.contextUsage(conv.id);
+    const charBudget = usage.limit ? Math.max(8_000, Math.floor(usage.limit * 0.6 * 2)) : 120_000;
+    const transcript = renderTranscript(history, charBudget, this.deps.media?.store);
+    const prompt =
+      'You are compacting a long chat so it can continue with less context. Write a summary, in the same language the user writes in, that lets the assistant resume seamlessly. Include:\n' +
+      "1. The user's goals and current request\n" +
+      "2. Facts established, decisions made, and the user's preferences\n" +
+      '3. Attachments and tool references that may still be needed: attachment_id / video_id / pdf_id / image ids, file paths, URLs (copy ids exactly)\n' +
+      '4. Work in progress and what remains to be done\n' +
+      '5. The most recent exchange in enough detail to continue naturally\n' +
+      'Be concrete and compact (aim for under 1500 tokens). Output only the summary, as Markdown, no preamble.\n\n' +
+      (previous
+        ? `## Summary of even earlier conversation (already compacted)\n${previous}\n\n`
+        : '') +
+      `## Conversation to summarize\n${transcript}`;
+
+    const controller = new AbortController();
+    const runId = newId();
+    let out = '';
+    const done = (async () => {
+      await this.ensureModelLoaded(profile, model, () => undefined, controller.signal);
+      const capabilities = await this.capabilitiesFor(profile, model);
+      for await (const ev of getAdapter(profile.kind).chat(
+        profile,
+        {
+          model,
+          messages: [{ role: 'user', text: prompt }],
+          params: { temperature: 0.2, maxTokens: 4096, think: false },
+          capabilities,
+        },
+        controller.signal,
+      )) {
+        if (ev.type === 'text-delta') out += ev.text;
+        if (ev.type === 'error') throw new Error(ev.message);
+      }
+    })();
+    this.runs.set(runId, {
+      controller,
+      conversationId: conv.id,
+      done: done.catch(() => undefined),
+    });
+    try {
+      await done;
+    } finally {
+      this.runs.delete(runId);
+    }
+    const text = out.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+    if (!text) throw new Error('要約が空でした');
+    const node = messages.create({
+      conversationId: conv.id,
+      parentId: conv.activeLeafId,
+      role: 'user',
+      kind: 'compaction',
+      parts: [{ type: 'text', text }],
+      model,
+    });
+    conversations.update(conv.id, { activeLeafId: node.id });
+    return { messageId: node.id };
   }
 
   private async describeModel(profile: ServerProfile, model: string): Promise<ModelInfo | null> {
@@ -816,4 +1019,57 @@ function makeTitle(text: string): string {
   const line = text.trim().split(/\r?\n/)[0] ?? '';
   const chars = [...line];
   return chars.length > 40 ? chars.slice(0, 40).join('') + '…' : line;
+}
+
+/** 要約用に会話をテキスト化する(添付は id と名前、ツール結果は先頭だけ)。文字数上限を超えたら古い方を落とす */
+export function renderTranscript(
+  history: Message[],
+  charBudget: number,
+  store?: Pick<MediaStore, 'get'>,
+): string {
+  const blocks: string[] = [];
+  for (const m of history) {
+    if (m.kind === 'note') continue;
+    const lines: string[] = [];
+    for (const p of m.parts) {
+      if (p.type === 'text') lines.push(p.text);
+      else if (p.type === 'reasoning') continue;
+      else {
+        const a = store?.get(p.attachmentId);
+        const name = p.name ?? a?.originalName ?? p.attachmentId;
+        const idLabel =
+          p.type === 'video'
+            ? 'video_id'
+            : a?.mime === 'application/pdf'
+              ? 'pdf_id'
+              : 'attachment_id';
+        lines.push(`[attached ${p.type}: ${idLabel}=${p.attachmentId}, name="${name}"]`);
+      }
+    }
+    if (m.toolCalls)
+      for (const c of m.toolCalls) lines.push(`[tool call ${c.name}(${c.args.slice(0, 300)})]`);
+    let body = lines.join('\n').trim();
+    if (m.role === 'tool') {
+      const name = (m.toolMeta as { name?: string } | null)?.name ?? 'tool';
+      body = `[tool result ${name}] ${body.slice(0, 500)}${body.length > 500 ? ' …' : ''}`;
+    }
+    if (!body) continue;
+    const role =
+      m.role === 'tool'
+        ? 'Tool'
+        : m.kind === 'tool-media'
+          ? 'Tool media'
+          : m.role === 'user'
+            ? 'User'
+            : 'Assistant';
+    blocks.push(`### ${role}\n${body}`);
+  }
+  let total = blocks.reduce((n, b) => n + b.length + 2, 0);
+  let dropped = 0;
+  while (blocks.length > 2 && total > charBudget) {
+    total -= blocks.shift()!.length + 2;
+    dropped++;
+  }
+  const head = dropped > 0 ? `[${dropped} earlier messages omitted for length]\n\n` : '';
+  return head + blocks.join('\n\n');
 }

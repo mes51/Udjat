@@ -55,6 +55,22 @@ function AutoTitleSetting() {
   );
 }
 
+function AutoCompactSetting() {
+  const auto = useSetting<boolean>('context.autoCompact');
+  const save = useSettingMutation();
+  return (
+    <label className="flex items-center gap-2 text-sm">
+      <input
+        type="checkbox"
+        checked={auto.data === true}
+        disabled={!auto.isFetched || save.isPending}
+        onChange={(e) => save.mutate({ key: 'context.autoCompact', value: e.target.checked })}
+      />
+      閾値を超えていたら、送信前に自動で会話を要約して圧縮する
+    </label>
+  );
+}
+
 /** フォーカスを外した時に保存するテキスト入力(設定キー 1 つに対応) */
 function SettingInput({
   settingKey,
@@ -265,6 +281,43 @@ export function GeneralSettings() {
           動画のネイティブ入力
         </SectionTitle>
         <NativeVideoSettings />
+      </Section>
+      <Section className="gap-3">
+        <SectionTitle description="ヘッダーのメーターで使用量と上限を確認できます。閾値を超えると入力欄の上に圧縮を促すバナーが出ます">
+          コンテキストの圧縮
+        </SectionTitle>
+        <AutoCompactSetting />
+        <div className="grid max-w-2xl grid-cols-3 gap-3">
+          <SettingInput
+            settingKey="context.compactThreshold"
+            label="閾値 (%)"
+            hint="50〜99。既定 80"
+            type="number"
+            parse={(t) => {
+              const v = Number(t);
+              return Number.isFinite(v) && v > 0 ? Math.min(99, Math.max(50, Math.round(v))) : 80;
+            }}
+            format={(v) => String(typeof v === 'number' ? v : 80)}
+          />
+        </div>
+      </Section>
+      <Section>
+        <SectionTitle description="テキスト系のファイル(.md / .txt / .json / ソースコードなど)は本文を展開してモデルに送ります。上限を超えた分はモデルが attachment_text ツールで読みます">
+          添付ファイル
+        </SectionTitle>
+        <div className="grid max-w-2xl grid-cols-3 gap-3">
+          <SettingInput
+            settingKey="attachments.textMaxChars"
+            label="展開する最大文字数"
+            hint="1,000〜200,000"
+            type="number"
+            parse={(t) => {
+              const v = Number(t);
+              return Number.isFinite(v) && v > 0 ? Math.min(200_000, Math.max(1_000, v)) : 30_000;
+            }}
+            format={(v) => String(typeof v === 'number' ? v : 30_000)}
+          />
+        </div>
       </Section>
       <Section>
         <SectionTitle description="サーバープロファイル、MCP サーバー、ツールのポリシー、各種設定を JSON に書き出します。会話と添付は含みません(data/ フォルダごとコピーしてください)">

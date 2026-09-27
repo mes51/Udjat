@@ -3,6 +3,7 @@ import { basename, dirname, isAbsolute, relative, resolve, sep } from 'node:path
 import type { FsRoot } from '@shared/schemas';
 import type { PdfService } from '@main/media/pdf';
 import { kindFromMime, mimeFromName, type MediaStore } from '@main/media/store';
+import { looksText } from '@main/media/text-files';
 import type { RegisteredTool, ToolMedia } from '../types';
 import { fail, num, ok, str, ToolError } from '../types';
 import { pathAllowed } from './code';
@@ -25,63 +26,6 @@ const MAX_TEXT_BYTES = 32 * 1024 * 1024;
 const MAX_DEPTH = 6;
 const DEFAULT_MAX_ENTRIES = 200;
 const MAX_ENTRIES = 1000;
-
-const TEXT_MIMES = new Set([
-  'application/json',
-  'application/xml',
-  'application/javascript',
-  'application/x-yaml',
-  'application/yaml',
-  'application/toml',
-  'application/x-sh',
-]);
-const TEXT_EXTS = new Set([
-  'txt',
-  'md',
-  'markdown',
-  'json',
-  'jsonl',
-  'yaml',
-  'yml',
-  'toml',
-  'ini',
-  'cfg',
-  'conf',
-  'csv',
-  'tsv',
-  'xml',
-  'html',
-  'htm',
-  'css',
-  'js',
-  'mjs',
-  'cjs',
-  'ts',
-  'tsx',
-  'jsx',
-  'py',
-  'rb',
-  'sh',
-  'ps1',
-  'bat',
-  'cmd',
-  'go',
-  'rs',
-  'java',
-  'kt',
-  'c',
-  'h',
-  'cpp',
-  'hpp',
-  'cs',
-  'sql',
-  'log',
-  'env',
-  'gitignore',
-  'svg',
-  'prompt',
-  'tex',
-]);
 
 /** 設定から許可フォルダを読む(壊れた項目は無視) */
 export function readRoots(getSetting: (key: string) => unknown): FsRoot[] {
@@ -151,18 +95,6 @@ export function globToRegExp(pattern: string): RegExp {
     else re += c.replace(/[.+^${}()|[\]\\]/g, '\\$&');
   }
   return new RegExp(`^${re}$`, process.platform === 'win32' ? 'i' : '');
-}
-
-function looksText(mime: string, path: string, head: Buffer): boolean {
-  if (mime.startsWith('text/') || TEXT_MIMES.has(mime)) return true;
-  const ext = path.split('.').pop()?.toLowerCase() ?? '';
-  if (TEXT_EXTS.has(ext)) return true;
-  if (head.length === 0) return true;
-  if (head.includes(0)) return false;
-  // 制御文字(改行・タブ以外)が多ければバイナリ扱い
-  let ctrl = 0;
-  for (const b of head) if (b < 32 && b !== 9 && b !== 10 && b !== 13) ctrl++;
-  return ctrl / head.length < 0.05;
 }
 
 interface ListEntry {
