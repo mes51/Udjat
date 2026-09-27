@@ -37,25 +37,67 @@ async function unslothModels(profile: ServerProfile, signal?: AbortSignal) {
   return res.data ?? [];
 }
 
+/** Unsloth の GGUF 量子化候補(ダウンロード済みのもの) */
+export interface UnslothVariant {
+  quant: string;
+  label: string;
+  downloaded: boolean;
+  sizeBytes: number;
+}
+
+/** 量子化名らしい文字列か(Q4_K_M, IQ2_XS, UD-Q4_K_XL, BF16, F16, MXFP4 など)。Ollama タグ等の誤分解を避ける */
+export function looksLikeQuant(s: string): boolean {
+  return /^(ud-)?(i?qd|f16|f32|bf16|mxfpd|tqd)[a-z0-9_.-]*$/i.test(s);
+}
+
+/** "repo:QUANT" を分解する。rows に repo があるか、末尾が量子化名らしい時だけ分ける */
+export function splitUnslothModel(
+  rows: readonly { id: string }[],
+  model: string,
+): { id: string; quant?: string } {
+  if (rows.some((r) => r.id === model) || !model.includes(':')) return { id: model };
+  const i = model.lastIndexOf(':');
+  const base = model.slice(0, i);
+  const suffix = model.slice(i + 1);
+  if (rows.some((r) => r.id === base) || looksLikeQuant(suffix)) return { id: base, quant: suffix };
+  return { id: model };
+}
+
+/**
+ * GET /api/models/gguf-variants で repo の量子化一覧を引く(オフライン・ローカル優先)。
+ * /v1/models は常駐中(または先頭)の quant しか返さないので、モデル選択 UI 用に使う。
+ */
+export async function unslothVariants(
+  profile: ServerProfile,
+  repoId: string,
+  signal?: AbortSignal,
+): Promise<UnslothVariant[]> {
+  const q = new URLSearchParams({ repo_id: repoId, prefer_local_cache: 'true', offline: 'true' });
+  const res = await requestJson<{
+    variants?: {
+      quant: string;
+      display_label?: string | null;
+      downloaded?: boolean;
+      size_bytes?: number;
+    }[];
+  }>(profile, `/api/models/gguf-variants?${q.toString()}`, { signal, timeoutMs: 8_000 });
+  return (res.variants ?? []).map((v) => ({
+    quant: v.quant,
+    label: v.display_label ?? v.quant,
+    downloaded: v.downloaded === true,
+    sizeBytes: v.size_bytes ?? 0,
+  }));
+}
+
 /**
  * Unsloth の /load は GGUF を `gguf_variant` の有無で見分ける(無いと Transformers ロード扱いになり
  * GGUF は読み込まれない)。/v1/models の `quant` を渡し、"id:QUANT" 形式の指定も受け付ける。
  */
 function unslothLoadBody(rows: UnslothModelRow[], model: string): Record<string, unknown> {
-  let id = model;
-  let quant: string | undefined;
-  const row = rows.find((r) => r.id === model);
-  if (row) quant = row.quant;
-  else if (model.includes(':')) {
-    const i = model.lastIndexOf(':');
-    const base = model.slice(0, i);
-    const suffix = model.slice(i + 1);
-    const baseRow = rows.find((r) => r.id === base);
-    if (baseRow || /^[A-Za-z0-9_]+$/.test(suffix)) {
-      id = base;
-      quant = suffix;
-    }
-  }
+  const parsed = splitUnslothModel(rows, model);
+  const id = parsed.id;
+  const row = rows.find((r) => r.id === id);
+  const quant = parsed.quant ?? row?.quant;
   // max_seq_length 0 = サーバー(llama.cpp / MLX)にコンテキスト長を任せる
   const body: Record<string, unknown> = { model_path: id, max_seq_length: 0 };
   if (quant) body['gguf_variant'] = quant;
@@ -76,7 +118,10 @@ const unsloth: ModelManager = {
     const rows = await unslothModels(profile, signal);
     return {
       supported: rows.some((r) => typeof r.loaded === 'boolean'),
-      loaded: rows.filter((r) => r.loaded === true).map((r) => r.id),
+      // 常駐中の量子化は "id:QUANT" でも一致させる(モデル一覧はその形で展開する)
+      loaded: rows
+        .filter((r) => r.loaded === true)
+        .flatMap((r) => (r.quant ? [r.id, `${r.id}:${r.quant}`] : [r.id])),
       loading: [],
     };
   },

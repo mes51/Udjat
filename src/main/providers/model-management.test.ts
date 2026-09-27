@@ -42,8 +42,13 @@ describe('model management', () => {
     });
     const profile = server.profile('unsloth');
     const mgr = modelManagerFor('unsloth')!;
-    expect(await mgr.status(profile)).toEqual({ supported: true, loaded: ['a'], loading: [] });
-    // listModels にも loaded が入る
+    // 常駐中の量子化は "id:QUANT" でも一致する
+    expect(await mgr.status(profile)).toEqual({
+      supported: true,
+      loaded: ['a', 'a:Q4_K_M'],
+      loading: [],
+    });
+    // listModels にも loaded が入る(gguf-variants が無いサーバーでは素の行のまま)
     const models = await new OpenAICompatibleAdapter('unsloth').listModels(profile);
     expect(models.map((m) => [m.id, m.loaded])).toEqual([
       ['a', true],
@@ -62,6 +67,73 @@ describe('model management', () => {
     await mgr.unload(profile, 'b');
     expect(server.requests.at(-1)?.body).toEqual({ model_path: 'b' });
     expect((await mgr.status(profile)).loaded).toEqual([]);
+  });
+
+  it('unsloth: expands GGUF rows into downloaded quantizations and sends the bare id to chat', async () => {
+    server = await startMockServer({
+      'GET /v1/models': (_r, _b, res) =>
+        json(res, {
+          data: [
+            { id: 'org/gemma-GGUF', object: 'model', loaded: true, quant: 'Q8_0' },
+            { id: 'org/plain-model', object: 'model', loaded: false },
+          ],
+        }),
+      'GET /api/models/gguf-variants?repo_id=org%2Fgemma-GGUF&prefer_local_cache=true&offline=true':
+        (_r, _b, res) =>
+          json(res, {
+            repo_id: 'org/gemma-GGUF',
+            variants: [
+              { filename: 'a-Q4_K_M.gguf', quant: 'Q4_K_M', downloaded: true, size_bytes: 10 },
+              { filename: 'a-Q8_0.gguf', quant: 'Q8_0', downloaded: true, size_bytes: 20 },
+              { filename: 'a-BF16.gguf', quant: 'BF16', downloaded: false, size_bytes: 40 },
+            ],
+            default_variant: 'Q4_K_M',
+          }),
+      'POST /v1/chat/completions': (_r, body, res) =>
+        json(res, { echo: (body as { model: string }).model }),
+    });
+    const profile = server.profile('unsloth');
+    const adapter = new OpenAICompatibleAdapter('unsloth');
+    const models = await adapter.listModels(profile);
+    expect(models.map((m) => [m.id, m.name, m.loaded])).toEqual([
+      ['org/gemma-GGUF:Q4_K_M', 'gemma-GGUF (Q4_K_M)', false],
+      ['org/gemma-GGUF:Q8_0', 'gemma-GGUF (Q8_0)', true],
+      ['org/plain-model', 'plain-model', false],
+    ]);
+    // "id:QUANT" を選んでもチャットには素の id を送る
+    const it = adapter.chat(
+      profile,
+      {
+        model: 'org/gemma-GGUF:Q4_K_M',
+        messages: [{ role: 'user', text: 'hi' }],
+        params: {},
+        capabilities: {
+          image: false,
+          audio: false,
+          video: 'none',
+          tools: false,
+          streamingToolCalls: false,
+          toolResultMedia: 'follow-up-user-message',
+          reasoning: false,
+        },
+      },
+      new AbortController().signal,
+    );
+    for await (const _ev of it) {
+      /* JSON 応答なので特に読まない */
+    }
+    const chatReq = server.requests.find((r) => r.path === '/v1/chat/completions');
+    expect((chatReq?.body as { model: string }).model).toBe('org/gemma-GGUF');
+    // ロードは選んだ量子化で行う
+    await modelManagerFor('unsloth')!
+      .load(profile, 'org/gemma-GGUF:Q4_K_M')
+      .catch(() => undefined);
+    const loadReq = server.requests.find((r) => r.path === '/v1/load');
+    expect(loadReq?.body).toEqual({
+      model_path: 'org/gemma-GGUF',
+      max_seq_length: 0,
+      gguf_variant: 'Q4_K_M',
+    });
   });
 
   it('unsloth: treats a padded _deferred_error body and a no-op 200 as failures', async () => {

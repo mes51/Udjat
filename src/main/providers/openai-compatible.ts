@@ -1,6 +1,11 @@
 import type { ChatEvent, ModelInfo, ServerKind, ServerProfile, ToolCall } from '@shared/schemas';
 import { request, requestJson } from './http';
-import { modelManagerFor } from './model-management';
+import {
+  modelManagerFor,
+  splitUnslothModel,
+  unslothVariants,
+  type UnslothVariant,
+} from './model-management';
 import { parseSse } from './stream-parsers';
 import type { CanonicalMessage, ChatRequest, ModelManager, ProviderAdapter } from './types';
 
@@ -81,10 +86,53 @@ function toWireMessages(kind: ServerKind, messages: CanonicalMessage[]): WireMes
   });
 }
 
+/** サーバーに渡すモデル id。Unsloth は "repo:QUANT" で選んでいても素の id で送る(量子化はロード時に決まる) */
+function wireModelId(kind: ServerKind, model: string): string {
+  return kind === 'unsloth' ? splitUnslothModel([], model).id : model;
+}
+
+/**
+ * Unsloth: /v1/models は常駐中(または先頭)の量子化しか返さないので、GGUF の行は
+ * /api/models/gguf-variants で取ったダウンロード済み量子化ごとに "repo:QUANT" へ展開する。
+ * 取得に失敗した repo は素の行のまま残す。
+ */
+async function expandUnslothVariants(
+  profile: ServerProfile,
+  rows: { id: string; loaded?: boolean; quant?: string }[],
+  models: ModelInfo[],
+  signal?: AbortSignal,
+): Promise<ModelInfo[]> {
+  const byId = new Map(rows.map((r) => [r.id, r] as const));
+  const expanded = await Promise.all(
+    models.map(async (m) => {
+      const row = byId.get(m.id);
+      if (!row?.quant) return [m];
+      let variants: UnslothVariant[];
+      try {
+        variants = (await unslothVariants(profile, m.id, signal)).filter((v) => v.downloaded);
+      } catch {
+        return [m];
+      }
+      if (variants.length === 0) return [m];
+      // 常駐中の量子化が一覧に無ければ先頭に足す(quant の表記揺れ対策)
+      if (row.loaded && !variants.some((v) => v.quant === row.quant))
+        variants.unshift({ quant: row.quant, label: row.quant, downloaded: true, sizeBytes: 0 });
+      return variants.map<ModelInfo>((v) => ({
+        ...m,
+        id: `${m.id}:${v.quant}`,
+        name: `${m.name} (${v.label})`,
+        loaded: row.loaded === true && row.quant === v.quant,
+        details: { ...m.details, quant: v.quant, sizeBytes: v.sizeBytes },
+      }));
+    }),
+  );
+  return expanded.flat();
+}
+
 function buildBody(kind: ServerKind, req: ChatRequest): Record<string, unknown> {
   const p = req.params;
   const body: Record<string, unknown> = {
-    model: req.model,
+    model: wireModelId(kind, req.model),
     messages: toWireMessages(kind, req.messages),
     stream: true,
     stream_options: { include_usage: true },
@@ -189,6 +237,8 @@ export class OpenAICompatibleAdapter implements ProviderAdapter {
         /* 古い llama.cpp や別実装では /props が無い */
       }
     }
+    if (this.kind === 'unsloth')
+      return expandUnslothVariants(profile, res.data ?? [], models, signal);
     return models;
   }
 
