@@ -295,4 +295,61 @@ describe.skipIf(!available.ffmpeg)('ChatService with video attachments', () => {
     const path = messages.pathToRoot(conversations.get(c.id)!.activeLeafId!);
     expect(path[0]!.parts.map((x) => x.type)).toEqual(['text', 'video']);
   });
+
+  it('applies a user-selected range to the native clip and to the contact sheet', async () => {
+    server = await startMockServer({
+      'POST /v1/chat/completions': (_r, _b, res) =>
+        sse(res, [{ choices: [{ delta: { content: 'ok' }, finish_reason: 'stop' }] }]),
+    });
+    const p = profiles.create({
+      name: 'l',
+      kind: 'llamacpp',
+      baseUrl: server.url,
+      apiKey: null,
+      defaultModel: 'qwen3-vl',
+      defaultParams: {},
+      capabilityOverrides: {},
+    });
+    const video = await store.addFile(videoPath);
+    const dur = video.meta.durationMs!;
+    const range = { startMs: Math.floor(dur * 0.25), endMs: Math.floor(dur * 0.75) };
+
+    // native: 区間のクリップが送られ、注記に区間と video_clip の案内が入る
+    const c1 = conversations.create({ serverProfileId: p.id, model: null });
+    const run1 = await service.send({
+      conversationId: c1.id,
+      text: '区間',
+      attachments: [{ id: video.id, sendMode: 'native', range }],
+    });
+    await service.waitFor(run1.runId);
+    const req1 = server.requests[0]!.body as { messages: Wire[] };
+    const content = req1.messages[0]!.content as { type: string; text?: string }[];
+    expect(content.map((x) => x.type)).toEqual(['text', 'input_video']);
+    expect(content[0]!.text).toContain('user-selected range');
+    expect(content[0]!.text).toContain('video_clip(');
+    const stored = messages.pathToRoot(conversations.get(c1.id)!.activeLeafId!)[0]!;
+    const vp = stored.parts.find((x) => x.type === 'video');
+    expect(vp && vp.type === 'video' ? vp.range : null).toEqual(range);
+    const clips = (
+      db.prepare("SELECT meta FROM attachments WHERE json_extract(meta, '$.derivedLabel') LIKE 'clip %'").all() as { meta: string }[]
+    ).map((r) => JSON.parse(r.meta) as { durationMs?: number });
+    expect(clips).toHaveLength(1);
+    expect(clips[0]!.durationMs!).toBeLessThan(dur * 0.6);
+    expect(clips[0]!.durationMs!).toBeGreaterThan(dur * 0.4);
+
+    // tools: 自動添付のコンタクトシートが区間で作られる
+    const c2 = conversations.create({ serverProfileId: p.id, model: null });
+    const run2 = await service.send({
+      conversationId: c2.id,
+      text: '区間',
+      attachments: [{ id: video.id, sendMode: 'tools', range }],
+    });
+    await service.waitFor(run2.runId);
+    const stored2 = messages.pathToRoot(conversations.get(c2.id)!.activeLeafId!)[0]!;
+    const sheet = stored2.parts.find((x) => x.type === 'image');
+    expect(sheet?.name).toMatch(/contact sheet [\d.]+s-[\d.]+s\)/);
+    const req2 = server.requests[1]!.body as { messages: Wire[] };
+    const text2 = (req2.messages[0]!.content as { type: string; text?: string }[])[0]!.text!;
+    expect(text2).toContain('focus on the range');
+  });
 });

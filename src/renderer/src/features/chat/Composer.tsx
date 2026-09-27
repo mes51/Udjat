@@ -133,6 +133,9 @@ export function Composer({
               ),
             )
           }
+          onSetRange={(id, range) =>
+            setPending((prev) => prev.map((p) => (p.attachment.id === id ? { ...p, range } : p)))
+          }
         />
         {error && <div className="px-1 pb-1 text-xs text-red-400">{error}</div>}
         {!disabled && (

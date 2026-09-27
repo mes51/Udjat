@@ -26,7 +26,12 @@ import type { ToolRegistry } from '@main/tools/registry';
 import { parseToolArgs } from '@main/tools/registry';
 import type { ToolResult } from '@main/tools/types';
 import { newId } from '@main/util/id';
+import { fmt } from '@main/media/video-ops';
 import { buildChatRequest, resolveModel } from './message-builder';
+
+function fmtRange(r: { startMs: number; endMs: number }): string {
+  return `${fmt(r.startMs)}-${fmt(r.endMs)}`;
+}
 
 export interface ChatServiceDeps {
   profiles: ServerProfileRepository;
@@ -160,6 +165,7 @@ export class ChatService {
           attachmentId: a.id,
           name: a.originalName,
           sendMode: ref.sendMode ?? 'tools',
+          ...(ref.range ? { range: ref.range } : {}),
         });
         if (
           (this.deps.autoContactSheet ?? true) &&
@@ -167,11 +173,15 @@ export class ChatService {
           !a.meta.probeError
         ) {
           try {
-            const { sheet } = await media.ops.contactSheet(a);
+            // 区間指定があればその区間だけを俯瞰するシートにする
+            const { sheet } = await media.ops.contactSheet(
+              a,
+              ref.range ? { startMs: ref.range.startMs, endMs: ref.range.endMs } : {},
+            );
             parts.push({
               type: 'image',
               attachmentId: sheet.id,
-              name: `${a.originalName} (contact sheet)`,
+              name: `${a.originalName} (contact sheet${ref.range ? ` ${fmtRange(ref.range)}` : ''})`,
             });
             linked.push(sheet);
           } catch (e) {
@@ -209,6 +219,7 @@ export class ChatService {
       attachments.push({
         id: p.attachmentId,
         ...(p.type === 'video' && p.sendMode ? { sendMode: p.sendMode } : {}),
+        ...(p.type === 'video' && p.range ? { range: p.range } : {}),
       });
     }
     return this.send({

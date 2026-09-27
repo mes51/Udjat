@@ -24,21 +24,25 @@ export interface ResolvedPart {
 export interface MediaResolverOptions {
   /** 画像の長辺上限(送信前に縮小) */
   imageMaxEdge?: number;
-  nativeClip?: NativeClipOptions;
+  /** ネイティブ動画入力のクリップ設定。関数なら送信のたびに評価する(設定の反映用) */
+  nativeClip?: NativeClipOptions | (() => NativeClipOptions);
   /** 音声入力に送る最大秒数 */
   audioMaxSeconds?: number;
   /** PDF 本文として送る最大文字数 */
   pdfMaxChars?: number;
 }
 
-export function videoNote(a: Attachment): string {
+export function videoNote(a: Attachment, range?: { startMs: number; endMs: number }): string {
   const dur = a.meta.durationMs !== undefined ? fmt(a.meta.durationMs) : '?';
   const res = a.meta.width && a.meta.height ? `${a.meta.width}x${a.meta.height}` : '?';
   const fps = a.meta.fps !== undefined ? `${a.meta.fps.toFixed(1)}fps` : '?fps';
   const audio = a.meta.hasAudio ? 'yes' : 'no';
+  const focus = range
+    ? ` The user wants you to focus on the range ${fmt(range.startMs)}-${fmt(range.endMs)}.`
+    : '';
   return (
     `[attached video: video_id=${a.id}, name="${a.originalName}", duration=${dur}, ${res}, ${fps}, audio=${audio}]\n` +
-    `Use the video_* tools (video_info, video_scenes, video_contact_sheet, video_frames) with this video_id to inspect it.`
+    `Use the video_* tools (video_info, video_scenes, video_contact_sheet, video_frames) with this video_id to inspect it.${focus}`
   );
 }
 
@@ -74,15 +78,20 @@ export class MediaResolver {
     }
 
     if (part.type === 'video') {
-      const out: ResolvedPart = { text: videoNote(a) };
+      const out: ResolvedPart = { text: videoNote(a, part.range) };
       if (part.sendMode === 'native' && caps.video === 'native') {
-        const clip = await this.ops.nativeClip(
-          a,
-          this.opts.nativeClip ?? DEFAULT_NATIVE_CLIP,
-          signal,
-        );
+        const nc = this.opts.nativeClip;
+        const opts = typeof nc === 'function' ? nc() : (nc ?? DEFAULT_NATIVE_CLIP);
+        const clip = await this.ops.nativeClip(a, opts, signal, part.range);
         out.video = { mime: clip.mime, base64: this.store.readBase64(clip), name: a.originalName };
-        out.text = `[attached video: video_id=${a.id}, name="${a.originalName}"] The video itself is attached (downscaled, first ${(this.opts.nativeClip ?? DEFAULT_NATIVE_CLIP).maxSeconds}s max). The video_* tools are also available for closer inspection.`;
+        const from = clip.meta.derivedLabel ?? '';
+        const range = part.range
+          ? `the user-selected range ${fmt(part.range.startMs)}-${fmt(part.range.endMs)}`
+          : 'the beginning';
+        out.text =
+          `[attached video: video_id=${a.id}, name="${a.originalName}", full duration=${a.meta.durationMs !== undefined ? fmt(a.meta.durationMs) : '?'}]\n` +
+          `The attached video is a downscaled clip (${from}) covering up to ${opts.maxSeconds}s from ${range}. ` +
+          `To see other parts of the video, call video_clip(video_id, start, end) (up to ${opts.maxSeconds}s per call); video_contact_sheet / video_frames are also available.`;
       }
       return out;
     }

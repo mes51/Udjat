@@ -128,11 +128,18 @@ export const AttachmentSchema = z.object({
 });
 export type Attachment = z.infer<typeof AttachmentSchema>;
 
+/** 動画の対象区間(ミリ秒)。native ならこの区間のクリップを送り、tools ならこの区間のコンタクトシートを添える */
+export const VideoRangeSchema = z
+  .object({ startMs: z.number().min(0), endMs: z.number().min(0) })
+  .refine((r) => r.endMs > r.startMs, { message: '終了は開始より後にしてください' });
+export type VideoRange = z.infer<typeof VideoRangeSchema>;
+
 /** 送信時の添付指定 */
 export const AttachmentRefSchema = z.object({
   id: z.string(),
   /** 動画の送り方。tools = ツールで参照(既定)、native = 動画をそのまま送る */
   sendMode: z.enum(['tools', 'native']).optional(),
+  range: VideoRangeSchema.optional(),
 });
 export type AttachmentRef = z.infer<typeof AttachmentRefSchema>;
 
@@ -149,6 +156,7 @@ export const PartSchema = z.discriminatedUnion('type', [
     attachmentId: z.string(),
     name: z.string().optional(),
     sendMode: z.enum(['tools', 'native']).optional(),
+    range: VideoRangeSchema.optional(),
   }),
   z.object({ type: z.literal('file'), attachmentId: z.string(), name: z.string().optional() }),
 ]);

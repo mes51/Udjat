@@ -136,6 +136,7 @@ export function ChatPane({ conversationId }: { conversationId: string }) {
           prefill.push({
             attachment: a,
             sendMode: p.type === 'video' && p.sendMode ? p.sendMode : 'tools',
+            range: p.type === 'video' ? p.range : undefined,
           });
         }
       }

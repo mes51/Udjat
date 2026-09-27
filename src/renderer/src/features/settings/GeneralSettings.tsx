@@ -96,6 +96,77 @@ function FfmpegSettings() {
   );
 }
 
+/** ネイティブ動画入力(llama.cpp / vLLM に動画をそのまま送る時)のクリップ設定 */
+function NativeVideoSettings() {
+  const maxSeconds = useSetting<number>('video.native.maxSeconds');
+  const width = useSetting<number>('video.native.width');
+  const fps = useSetting<number>('video.native.fps');
+  const save = useSettingMutation();
+  const [form, setForm] = useState<{ maxSeconds: string; width: string; fps: string } | null>(
+    null,
+  );
+  const loaded = maxSeconds.isFetched && width.isFetched && fps.isFetched;
+  const cur = form ?? {
+    maxSeconds: String(maxSeconds.data ?? 60),
+    width: String(width.data ?? 640),
+    fps: String(fps.data ?? 2),
+  };
+  if (!loaded) return <p className="text-fg-muted text-xs">読み込み中…</p>;
+  const persist = async () => {
+    const n = (s: string, fallback: number, min: number, max: number) => {
+      const v = Number(s);
+      return Number.isFinite(v) && v > 0 ? Math.min(max, Math.max(min, v)) : fallback;
+    };
+    await save.mutateAsync({ key: 'video.native.maxSeconds', value: n(cur.maxSeconds, 60, 5, 600) });
+    await save.mutateAsync({ key: 'video.native.width', value: n(cur.width, 640, 160, 1920) });
+    await save.mutateAsync({ key: 'video.native.fps', value: n(cur.fps, 2, 0.5, 30) });
+    setForm(null);
+  };
+  return (
+    <div className="flex flex-col gap-2">
+      <p className="text-fg-muted text-xs">
+        動画をそのまま送れるモデルには、縮小・低 fps
+        化したクリップを渡します。添付チップの「範囲」で区間を指定でき、指定が無ければ先頭からです。長い動画の他の部分はモデルが
+        video_clip ツールで読み込みます(1 回の上限もこの最大秒数)。
+      </p>
+      <div className="grid grid-cols-3 gap-2">
+        <Field label="最大秒数" hint="5〜600">
+          <Input
+            type="number"
+            value={cur.maxSeconds}
+            onChange={(e) => setForm({ ...cur, maxSeconds: e.target.value })}
+          />
+        </Field>
+        <Field label="幅 (px)" hint="160〜1920">
+          <Input
+            type="number"
+            value={cur.width}
+            onChange={(e) => setForm({ ...cur, width: e.target.value })}
+          />
+        </Field>
+        <Field label="fps" hint="0.5〜30">
+          <Input
+            type="number"
+            step="0.5"
+            value={cur.fps}
+            onChange={(e) => setForm({ ...cur, fps: e.target.value })}
+          />
+        </Field>
+      </div>
+      <div>
+        <Button
+          variant="secondary"
+          size="sm"
+          disabled={form === null || save.isPending}
+          onClick={() => void persist()}
+        >
+          保存
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 function BackupSettings() {
   const qc = useQueryClient();
   const confirm = useConfirm();
@@ -181,6 +252,10 @@ export function GeneralSettings() {
       <section>
         <h3 className="mb-2 text-sm font-medium">ffmpeg</h3>
         <FfmpegSettings />
+      </section>
+      <section>
+        <h3 className="mb-2 text-sm font-medium">動画のネイティブ入力</h3>
+        <NativeVideoSettings />
       </section>
       <section>
         <h3 className="mb-2 text-sm font-medium">設定のバックアップ</h3>

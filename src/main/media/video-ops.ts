@@ -168,14 +168,21 @@ export class VideoOps {
     });
   }
 
-  /** ネイティブ動画入力用に、先頭 maxSeconds を縮小・低 fps 化したクリップ */
+  /**
+   * ネイティブ動画入力用に、縮小・低 fps 化したクリップ。区間指定があればその区間の先頭から、
+   * なければ動画の先頭から、いずれも maxSeconds まで。
+   */
   async nativeClip(
     video: Attachment,
     opts: NativeClipOptions = DEFAULT_NATIVE_CLIP,
     signal?: AbortSignal,
+    range?: { startMs: number; endMs: number },
   ): Promise<Attachment> {
     const dur = this.durationMs(video);
-    return this.clip(video, 0, Math.min(dur, opts.maxSeconds * 1000), opts.width, opts.fps, signal);
+    const startMs = clamp(range?.startMs ?? 0, 0, Math.max(0, dur - 1));
+    const wanted = Math.min(range?.endMs ?? dur, dur);
+    const endMs = Math.min(wanted, startMs + opts.maxSeconds * 1000);
+    return this.clip(video, startMs, endMs, opts.width, opts.fps, signal);
   }
 
   /** 画像添付を長辺上限に縮小した派生画像(送信用) */

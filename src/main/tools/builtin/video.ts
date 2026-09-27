@@ -239,7 +239,7 @@ export function createVideoTools({ store, ops }: VideoToolDeps): RegisteredTool[
     definition: {
       name: 'video_clip',
       description:
-        '指定区間を縮小・低 fps の短い動画として次のメッセージに添付する。動きの理解が必要な時だけ使う(フレーム画像より重い)。区間は 60 秒以内。',
+        '指定区間を縮小・低 fps の短い動画として次のメッセージに添付する。添付時に送られた動画は先頭(または指定区間)の一部だけなので、長い動画の別の部分を見たい時や、動きの理解が必要な時に使う(フレーム画像より重い)。1 回の区間は既定 60 秒以内。',
       parameters: {
         type: 'object',
         properties: {
@@ -272,7 +272,9 @@ export function createVideoTools({ store, ops }: VideoToolDeps): RegisteredTool[
       const startMs = sec(args, 'start', 0);
       const endMs = sec(args, 'end', 0);
       if (endMs <= startMs) return fail('end は start より大きい必要があります');
-      if (endMs - startMs > 60_000) return fail('区間は 60 秒以内にしてください');
+      // 上限は一般設定「ネイティブ動画入力の最大秒数」に揃える(既定 60 秒)
+      const maxSec = Number(ctx.getSetting('video.native.maxSeconds')) || 60;
+      if (endMs - startMs > maxSec * 1000) return fail(`区間は ${maxSec} 秒以内にしてください`);
       const fps = num(args, 'fps', 2, 0.5, 10);
       const width = num(args, 'width', 640, 160, 1280);
       const clip = await ops.clip(v, startMs, endMs, width, fps, ctx.signal);

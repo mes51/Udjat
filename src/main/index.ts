@@ -143,7 +143,24 @@ if (!app.requestSingleInstanceLock()) {
       tools,
       emit: (ev) => broadcastIpcEvent('chat:event', ev),
       getSetting: (key) => settings.get(key),
-      media: { store: media, ops, attachments, resolver: new MediaResolver(media, ops, {}, pdf) },
+      media: {
+        store: media,
+        ops,
+        attachments,
+        resolver: new MediaResolver(
+          media,
+          ops,
+          {
+            // 一般設定の値を送信のたびに読む(再起動なしで反映)
+            nativeClip: () => ({
+              maxSeconds: Number(settings.get('video.native.maxSeconds')) || 60,
+              width: Number(settings.get('video.native.width')) || 640,
+              fps: Number(settings.get('video.native.fps')) || 2,
+            }),
+          },
+          pdf,
+        ),
+      },
     });
     registerIpcHandlers({
       db,

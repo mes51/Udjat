@@ -1,5 +1,6 @@
-import { Film, FileIcon, Image as ImageIcon, Music, X } from 'lucide-react';
-import type { Attachment, AttachmentRef } from '@shared/schemas';
+import { Film, FileIcon, Image as ImageIcon, Music, Scissors, X } from 'lucide-react';
+import { useState } from 'react';
+import type { Attachment, AttachmentRef, VideoRange } from '@shared/schemas';
 import { Button } from '@renderer/components/ui/button';
 import { formatBytes, formatSeconds, mediaUrl } from '@renderer/lib/attachments';
 import { cn } from '@renderer/lib/utils';
@@ -7,13 +8,99 @@ import { cn } from '@renderer/lib/utils';
 export interface PendingAttachment {
   attachment: Attachment;
   sendMode: 'tools' | 'native';
+  /** 動画の対象区間(省略時は全体 / 先頭から) */
+  range?: VideoRange | undefined;
 }
 
 export function toRefs(list: PendingAttachment[]): AttachmentRef[] {
   return list.map((p) => ({
     id: p.attachment.id,
     ...(p.attachment.meta.kind === 'video' ? { sendMode: p.sendMode } : {}),
+    ...(p.attachment.meta.kind === 'video' && p.range ? { range: p.range } : {}),
   }));
+}
+
+/** ms を "m:ss" 表記に(区間エディタの入出力用。parseTimeMs で読み戻せる) */
+export function clock(ms: number): string {
+  const s = Math.floor(ms / 1000);
+  const frac = Math.round((ms % 1000) / 100);
+  const base = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+  return frac > 0 ? `${base}.${frac}` : base;
+}
+
+/** "83" / "1:23" / "1:23.5" / "1:02:03" を ms に。不正なら null */
+export function parseTimeMs(s: string): number | null {
+  const t = s.trim();
+  if (!t) return null;
+  const parts = t.split(':');
+  if (parts.length > 3 || parts.some((p) => !/^\d+(\.\d+)?$/.test(p))) return null;
+  let sec = 0;
+  for (const p of parts) sec = sec * 60 + Number(p);
+  return Math.round(sec * 1000);
+}
+
+/** 動画チップの区間エディタ */
+function RangeEditor({
+  durationMs,
+  range,
+  onApply,
+  onClose,
+}: {
+  durationMs: number | undefined;
+  range: VideoRange | undefined;
+  onApply: (r: VideoRange | undefined) => void;
+  onClose: () => void;
+}) {
+  const [start, setStart] = useState(range ? clock(range.startMs) : '0:00');
+  const [end, setEnd] = useState(
+    range ? clock(range.endMs) : durationMs !== undefined ? clock(durationMs) : ''
+  );
+  const s = parseTimeMs(start);
+  const e = parseTimeMs(end);
+  const valid =
+    s !== null &&
+    e !== null &&
+    e > s &&
+    (durationMs === undefined || (s < durationMs && e <= durationMs + 999));
+  const inputCls =
+    'border-border bg-surface-2 focus-visible:ring-accent/60 w-16 rounded border px-1 py-0.5 text-[11px] focus-visible:ring-1 focus-visible:outline-none';
+  return (
+    <div className="flex items-center gap-1" onKeyDown={(ev) => ev.key === 'Escape' && onClose()}>
+      <input
+        aria-label="開始"
+        className={inputCls}
+        value={start}
+        onChange={(ev) => setStart(ev.target.value)}
+        placeholder="0:00"
+      />
+      <span className="text-fg-muted">-</span>
+      <input
+        aria-label="終了"
+        className={inputCls}
+        value={end}
+        onChange={(ev) => setEnd(ev.target.value)}
+        placeholder="1:30"
+      />
+      <Button
+        size="sm"
+        className="h-6 px-1.5 text-[11px]"
+        disabled={!valid}
+        onClick={() => valid && onApply({ startMs: s, endMs: Math.min(e, durationMs ?? e) })}
+      >
+        適用
+      </Button>
+      {range && (
+        <Button
+          size="sm"
+          variant="ghost"
+          className="h-6 px-1.5 text-[11px]"
+          onClick={() => onApply(undefined)}
+        >
+          解除
+        </Button>
+      )}
+    </div>
+  );
 }
 
 export function AttachmentChips({
@@ -21,22 +108,25 @@ export function AttachmentChips({
   nativeVideo,
   onRemove,
   onToggleMode,
+  onSetRange,
 }: {
   items: PendingAttachment[];
   /** 選択中モデルが動画をそのまま受け取れるか */
   nativeVideo: boolean;
   onRemove: (id: string) => void;
   onToggleMode: (id: string) => void;
+  onSetRange: (id: string, range: VideoRange | undefined) => void;
 }) {
+  const [editingRange, setEditingRange] = useState<string | null>(null);
   if (items.length === 0) return null;
   return (
     <div className="flex flex-wrap gap-2 px-1 pb-2">
-      {items.map(({ attachment: a, sendMode }) => {
+      {items.map(({ attachment: a, sendMode, range }) => {
         const kind = a.meta.kind;
         return (
           <div
             key={a.id}
-            className="border-border bg-surface flex items-center gap-2 rounded-md border py-1 pr-1 pl-1.5 text-xs"
+            className="border-border bg-surface flex flex-wrap items-center gap-2 rounded-md border py-1 pr-1 pl-1.5 text-xs"
           >
             {kind === 'image' ? (
               <img
@@ -82,6 +172,36 @@ export function AttachmentChips({
               >
                 {sendMode === 'native' ? 'そのまま送る' : 'ツールで参照'}
               </button>
+            )}
+            {kind === 'video' && !a.meta.probeError && (
+              <button
+                type="button"
+                title={
+                  sendMode === 'native'
+                    ? 'モデルに渡す区間(先頭から最大秒数まで)を指定する'
+                    : '自動添付するコンタクトシートの区間を指定する'
+                }
+                aria-label="範囲"
+                onClick={() => setEditingRange(editingRange === a.id ? null : a.id)}
+                className={cn(
+                  'inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-[10px]',
+                  range ? 'border-accent text-accent' : 'border-border text-fg-muted',
+                )}
+              >
+                <Scissors size={10} />
+                {range ? `${clock(range.startMs)}-${clock(range.endMs)}` : '範囲'}
+              </button>
+            )}
+            {kind === 'video' && editingRange === a.id && (
+              <RangeEditor
+                durationMs={a.meta.durationMs}
+                range={range}
+                onApply={(r) => {
+                  onSetRange(a.id, r);
+                  setEditingRange(null);
+                }}
+                onClose={() => setEditingRange(null)}
+              />
             )}
             <Button
               variant="ghost"
