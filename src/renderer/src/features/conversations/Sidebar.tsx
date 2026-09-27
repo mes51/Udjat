@@ -39,7 +39,7 @@ function SearchResults({ query, onDone }: { query: string; onDone: () => void })
 
   if (results.isPending) return <p className="text-fg-muted px-3 py-4 text-xs">検索中…</p>;
   if (results.isError)
-    return <p className="px-3 py-4 text-xs text-red-400">{String(results.error)}</p>;
+    return <p className="px-3 py-4 text-xs text-danger">{String(results.error)}</p>;
   if (results.data.length === 0) return <p className="text-fg-muted px-3 py-4 text-xs">該当なし</p>;
   return (
     <div className="flex flex-col gap-0.5">
@@ -148,8 +148,8 @@ export function Sidebar() {
               onClick={() => select(c.id)}
               onKeyDown={(e) => e.key === 'Enter' && select(c.id)}
               className={cn(
-                'group hover:bg-surface-3 flex cursor-pointer items-center gap-1 rounded-md px-2 py-1.5 text-sm',
-                selected === c.id && 'bg-surface-3',
+                'group hover:bg-surface-3 text-fg-muted flex cursor-pointer items-center gap-1 rounded-md px-2 py-1.5 text-sm transition-colors',
+                selected === c.id && 'bg-accent/10 text-fg',
               )}
             >
               <div className="min-w-0 flex-1">
@@ -160,9 +160,7 @@ export function Sidebar() {
                     <span className="bg-accent ml-1 inline-block h-1.5 w-1.5 shrink-0 animate-pulse rounded-full" />
                   )}
                 </div>
-                <div className="text-fg-muted/70 text-[11px]">
-                  {formatRelativeTime(c.updatedAt)}
-                </div>
+                <div className="text-fg-subtle text-[11px]">{formatRelativeTime(c.updatedAt)}</div>
               </div>
               <div className="flex shrink-0 opacity-0 group-hover:opacity-100">
                 <Button

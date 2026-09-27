@@ -1,25 +1,76 @@
 @import 'tailwindcss';
 @import 'katex/dist/katex.min.css';
 
+/*
+ * Udjat デザイントークン。指針は docs/design/README.md、値の一覧は docs/design/tokens.md。
+ * ダークが基本。ライトは同じトークン名を :root[data-theme='light'] で上書きする。
+ * 面は「地 (surface) → パネル (surface-2) → 浮いた要素 (surface-3) → 押下/コード (surface-4)」の 4 段。
+ * 枠線は面の差で足りない所にだけ使う。アクセント(琥珀)は操作・選択・リンクの 1 色に限る。
+ */
 @theme {
-  --color-surface: #0f1115;
-  --color-surface-2: #171a21;
-  --color-surface-3: #21252e;
-  --color-border: #2a2f3a;
-  --color-fg: #e6e8ee;
-  --color-fg-muted: #9aa3b2;
-  --color-accent: #6ea8fe;
+  /* 面 */
+  --color-surface: #141311;
+  --color-surface-2: #1b1a17;
+  --color-surface-3: #252320;
+  --color-surface-4: #2f2c27;
+  /* 線 */
+  --color-border: #2c2a25;
+  --color-border-strong: #3d3a33;
+  /* 文字 */
+  --color-fg: #ece7dc;
+  --color-fg-muted: #a59e91;
+  --color-fg-subtle: #746d61;
+  /* アクセント(琥珀) */
+  --color-accent: #e2a94f;
+  --color-accent-strong: #eebb6a;
+  --color-accent-fg: #1b1508;
+  --color-accent-soft: rgba(226, 169, 79, 0.14);
+  /* 意味色(状態の表示にだけ使う。アクセントとは役割を分ける) */
+  --color-success: #62b98c;
+  --color-warning: #e08a3c;
+  --color-danger: #e5716f;
+  --color-info: #7fb2e5;
+
+  /* 角丸: sm=入力・チップ, md=ボタン・カード, lg=パネル・ダイアログ, xl=入力欄の外枠 */
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 14px;
+
+  /* 影: 面の差で表せない「浮き」にだけ使う */
+  --shadow-panel: 0 1px 2px rgba(0, 0, 0, 0.35), 0 0 0 1px rgba(0, 0, 0, 0.15);
+  --shadow-overlay: 0 16px 48px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(0, 0, 0, 0.3);
+
+  /* 書体: ポータブル配布なので同梱せず OS の書体に任せる */
+  --font-sans:
+    'Segoe UI Variable Text', 'Segoe UI', 'Yu Gothic UI', 'Hiragino Sans', 'Noto Sans JP',
+    system-ui, sans-serif;
+  --font-mono:
+    'Cascadia Code', 'Cascadia Mono', Consolas, 'SF Mono', Menlo, 'Roboto Mono',
+    'Noto Sans Mono CJK JP', monospace;
 }
 
-/* ライトテーマ: Tailwind の @theme 変数を上書きする */
+/* ライトテーマ: 同じ役割のトークンを上書きする(値は docs/design/tokens.md) */
 :root[data-theme='light'] {
-  --color-surface: #f7f8fa;
-  --color-surface-2: #ffffff;
-  --color-surface-3: #e9ecf1;
-  --color-border: #d5d9e0;
-  --color-fg: #1b1f27;
-  --color-fg-muted: #5c6575;
-  --color-accent: #2f6fdb;
+  --color-surface: #f4f1ea;
+  --color-surface-2: #fbf9f5;
+  --color-surface-3: #ebe6dc;
+  --color-surface-4: #e0d9cc;
+  --color-border: #dbd4c6;
+  --color-border-strong: #c4bcab;
+  --color-fg: #23201a;
+  --color-fg-muted: #6b6457;
+  --color-fg-subtle: #968e7f;
+  --color-accent: #b8730f;
+  --color-accent-strong: #9c6009;
+  --color-accent-fg: #fffaf0;
+  --color-accent-soft: rgba(184, 115, 15, 0.12);
+  --color-success: #2f8f5b;
+  --color-warning: #c2601a;
+  --color-danger: #c94f4f;
+  --color-info: #2f6fb8;
+  --shadow-panel: 0 1px 2px rgba(40, 30, 10, 0.08), 0 0 0 1px rgba(40, 30, 10, 0.04);
+  --shadow-overlay: 0 16px 48px rgba(40, 30, 10, 0.18), 0 0 0 1px rgba(40, 30, 10, 0.06);
 }
 
 html,
@@ -29,12 +80,50 @@ body,
   margin: 0;
 }
 
+body {
+  background: var(--color-surface);
+  color: var(--color-fg);
+  color-scheme: dark;
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.5;
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+:root[data-theme='light'] body {
+  color-scheme: light;
+}
+
+code,
+kbd,
+pre,
+.font-mono {
+  font-family: var(--font-mono);
+}
+
 kbd {
-  border: 1px solid var(--color-border);
-  border-radius: 4px;
-  padding: 0 0.35em;
-  font-size: 0.9em;
+  border: 1px solid var(--color-border-strong);
+  border-bottom-width: 2px;
+  border-radius: var(--radius-sm);
+  padding: 0 0.4em;
+  font-size: 0.85em;
   background: var(--color-surface-3);
+  color: var(--color-fg);
+}
+
+/* ネイティブ select の矢印(appearance-none にしているので自前で描く) */
+.ui-select {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%23a59e91' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.5rem center;
+}
+:root[data-theme='light'] .ui-select {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%236b6457' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+}
+
+/* チェックボックスはアクセント色に */
+input[type='checkbox'] {
+  accent-color: var(--color-accent);
 }
 
 /* shiki の 2 テーマ切替(defaultColor: false で出力した CSS 変数を使う) */
@@ -49,38 +138,30 @@ kbd {
   background-color: var(--shiki-light-bg);
 }
 
-body {
-  background: var(--color-surface);
-  color: var(--color-fg);
-  color-scheme: dark;
-}
-:root[data-theme='light'] body {
-  color-scheme: light;
-  font-family:
-    system-ui,
-    -apple-system,
-    'Segoe UI',
-    'Yu Gothic UI',
-    'Hiragino Sans',
-    'Noto Sans JP',
-    sans-serif;
-  overflow: hidden;
-}
-
 /* 細めのスクロールバー */
 * {
   scrollbar-width: thin;
-  scrollbar-color: var(--color-border) transparent;
+  scrollbar-color: var(--color-border-strong) transparent;
+}
+
+/* 動きを減らす設定を尊重する */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
 }
 
 /* Markdown 本文 */
 .md {
   font-size: 15px;
-  line-height: 1.7;
+  line-height: 1.75;
   overflow-wrap: anywhere;
 }
 .md > * + * {
-  margin-top: 0.6em;
+  margin-top: 0.65em;
 }
 .md h1,
 .md h2,
@@ -88,7 +169,8 @@ body {
 .md h4 {
   font-weight: 600;
   line-height: 1.35;
-  margin-top: 1.1em;
+  margin-top: 1.2em;
+  text-wrap: balance;
 }
 .md h1 {
   font-size: 1.35em;
@@ -115,19 +197,26 @@ body {
 .md li + li {
   margin-top: 0.2em;
 }
+.md li::marker {
+  color: var(--color-fg-subtle);
+}
 .md a {
   color: var(--color-accent);
   text-decoration: underline;
-  text-underline-offset: 2px;
+  text-decoration-color: color-mix(in srgb, var(--color-accent) 45%, transparent);
+  text-underline-offset: 3px;
+}
+.md a:hover {
+  text-decoration-color: var(--color-accent);
 }
 .md blockquote {
-  border-left: 3px solid var(--color-border);
+  border-left: 3px solid var(--color-border-strong);
   color: var(--color-fg-muted);
   padding-left: 0.8em;
 }
 .md code {
   background: var(--color-surface-3);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   font-size: 0.9em;
   padding: 0.1em 0.35em;
 }
@@ -138,6 +227,7 @@ body {
 .md table {
   border-collapse: collapse;
   font-size: 0.92em;
+  font-variant-numeric: tabular-nums;
 }
 .md th,
 .md td {
@@ -146,10 +236,15 @@ body {
 }
 .md th {
   background: var(--color-surface-2);
+  font-weight: 600;
 }
 .md hr {
   border: 0;
   border-top: 1px solid var(--color-border);
+}
+.md img {
+  max-width: 100%;
+  border-radius: var(--radius-md);
 }
 .code-block pre {
   padding: 0.75rem;

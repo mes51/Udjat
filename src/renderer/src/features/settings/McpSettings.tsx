@@ -108,8 +108,8 @@ function StatusBadge({ status }: { status: McpServerStatus | undefined }) {
     <span
       className={cn(
         'rounded border px-1.5 py-0.5 text-[10px]',
-        state === 'connected' && 'border-emerald-500/40 text-emerald-400',
-        state === 'error' && 'border-red-500/40 text-red-400',
+        state === 'connected' && 'border-success/40 text-success',
+        state === 'error' && 'border-danger/40 text-danger',
         state === 'connecting' && 'border-accent/40 text-accent',
         state === 'disconnected' && 'border-border text-fg-muted',
       )}
@@ -245,7 +245,7 @@ function ServerForm({
           起動時に自動接続
         </label>
       </div>
-      {err && <p className="text-xs text-red-400">{String(err)}</p>}
+      {err && <p className="text-xs text-danger">{String(err)}</p>}
       <div className="flex justify-between pt-2">
         {initial ? (
           <Button
@@ -416,7 +416,7 @@ export function McpSettings() {
         </div>
         <div className="border-border min-w-0 flex-1 border-l pl-4">
           {selected && statusOf(selected.id)?.state === 'error' && (
-            <p className="mb-2 rounded border border-red-500/30 bg-red-500/10 px-2 py-1 text-xs text-red-300 whitespace-pre-wrap">
+            <p className="mb-2 rounded border border-danger/30 bg-danger/10 px-2 py-1 text-xs text-danger whitespace-pre-wrap">
               {statusOf(selected.id)?.error}
             </p>
           )}

@@ -39,8 +39,8 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
       {children}
       <AlertDialog.Root open={opts !== null} onOpenChange={(open) => !open && finish(false)}>
         <AlertDialog.Portal>
-          <AlertDialog.Overlay className="fixed inset-0 z-50 bg-black/60" />
-          <AlertDialog.Content className="bg-surface-2 border-border fixed top-1/2 left-1/2 z-50 w-[min(92vw,26rem)] -translate-x-1/2 -translate-y-1/2 rounded-lg border p-5 shadow-xl focus:outline-none">
+          <AlertDialog.Overlay className="fixed inset-0 z-50 bg-black/55 backdrop-blur-[2px]" />
+          <AlertDialog.Content className="bg-surface-2 border-border shadow-overlay fixed top-1/2 left-1/2 z-50 w-[min(92vw,26rem)] -translate-x-1/2 -translate-y-1/2 rounded-lg border p-5 focus:outline-none">
             <AlertDialog.Title className="text-base font-semibold">{opts?.title}</AlertDialog.Title>
             <AlertDialog.Description className="text-fg-muted mt-1 text-sm">
               {opts?.description ?? ''}

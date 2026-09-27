@@ -37,7 +37,7 @@ export function ModelResidency({
       <span
         className={cn(
           'inline-block h-2 w-2 shrink-0 rounded-full',
-          isLoaded ? 'bg-emerald-400' : isLoading ? 'animate-pulse bg-amber-400' : 'bg-fg-muted/40',
+          isLoaded ? 'bg-success' : isLoading ? 'animate-pulse bg-warning' : 'bg-fg-muted/40',
         )}
       />
       <span className="text-fg-muted">
@@ -65,7 +65,7 @@ export function ModelResidency({
         </Button>
       )}
       {error && (
-        <span className="max-w-56 truncate text-red-400" title={String(error)}>
+        <span className="max-w-56 truncate text-danger" title={String(error)}>
           失敗: {String(error)}
         </span>
       )}

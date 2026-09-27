@@ -77,7 +77,13 @@ export function App() {
         <ChatPane conversationId={selected} />
       ) : (
         <main className="text-fg-muted flex flex-1 flex-col items-center justify-center gap-3 text-sm">
-          <div className="text-fg text-xl font-semibold">Udjat</div>
+          <div className="text-fg flex items-center gap-2.5 text-2xl font-semibold tracking-tight">
+            <span
+              aria-hidden
+              className="bg-accent shadow-[0_0_0_5px_var(--color-accent-soft)] inline-block h-3 w-3 rounded-full"
+            />
+            Udjat
+          </div>
           {profiles.data?.length === 0 ? (
             <>
               <p>まずサーバープロファイルを登録してください。</p>

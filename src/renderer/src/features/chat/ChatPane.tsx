@@ -287,7 +287,7 @@ export function ChatPane({ conversationId }: { conversationId: string }) {
             conversationId={conversationId}
           />
           {models.isError && !models.isFetching && (
-            <span className="flex min-w-0 items-center gap-1 text-xs text-red-400">
+            <span className="flex min-w-0 items-center gap-1 text-xs text-danger">
               <span className="truncate" title={String(models.error)}>
                 モデル一覧を取得できません
               </span>
@@ -343,7 +343,7 @@ export function ChatPane({ conversationId }: { conversationId: string }) {
           onEdit={(id, text) => void edit(id, text)}
           onBranchFrom={(id) => void branchFrom(id)}
         />
-        {sendError && <div className="px-4 py-1 text-xs text-red-400">{sendError}</div>}
+        {sendError && <div className="px-4 py-1 text-xs text-danger">{sendError}</div>}
         {notice && (
           <div className="text-fg-muted flex items-center gap-2 px-4 py-1 text-xs">
             <span className="truncate">{notice}</span>

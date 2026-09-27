@@ -1,0 +1,75 @@
+# 部品の使い分け
+
+実装は `src/renderer/src/components/ui/`(汎用)と `src/renderer/src/features/`(画面固有)。ここに無い見た目が要る時は、まず既存の部品の variant で表せないか考える。
+
+## Button(`components/ui/button.tsx`)
+
+| variant     | 使う所                                         | 例                                         |
+| ----------- | ---------------------------------------------- | ------------------------------------------ |
+| `default`   | その画面の主操作。1 画面(1 カード)に 1 つ      | 送信、保存、許可、追加                     |
+| `secondary` | 主操作と並ぶ副操作                             | 接続テスト、書き出す、この会話では常に許可 |
+| `outline`   | 補助的だが見えていてほしい操作                 | 再試行                                     |
+| `ghost`     | アイコンボタン、行内の操作、hover で現れる操作 | 設定、ピン留め、編集、再生成               |
+| `danger`    | 取り消せない操作                               | 削除、拒否                                 |
+
+- サイズは `default`(32px)と `sm`(28px)、アイコンだけなら `icon` / `icon-sm`
+- アイコン付きの文字ボタンは「アイコン + 半角スペース + 文字」(`<Send size={12} /> 送信`)
+- 進行中は `disabled` にし、ラベルは変えない(「保存中…」にしない)。必要なら隣に `Loader2` を回す
+
+## Input / Textarea / Select / Field(`components/ui/input.tsx`)
+
+- 必ず `Field` でラベルを付ける。ヒントは 1 文まで
+- placeholder は「例: …」か「空なら既定」のように、空の意味を書く。ラベルの代わりに使わない
+- 数値は `type="number"` + `step`。単位はラベルに書く(「最大秒数」「幅 (px)」)
+- `Select` は `ui-select` クラスで矢印を描く。自前の `<select>` を書かない
+
+## Dialog / ConfirmProvider
+
+- 設定のようなまとまった画面は `Dialog`(幅 56rem まで、内側はタブ)
+- はい/いいえの確認は `useConfirm()`。`window.confirm` / `alert` は使わない(Electron でキー入力が死ぬ)
+- 取り消せない操作の確認は `danger: true` で、確認ボタンのラベルはその動詞(「削除」)
+
+## チップ(入力欄のカテゴリ、添付)
+
+- ON: `border-accent/60 bg-accent/15 text-fg`、OFF: `border-border text-fg-muted opacity-70`
+- 角丸は `rounded-full`(カテゴリ)か `rounded-md`(添付)。文字は 11〜12px
+- 部分的に有効な時は `3/5` のような数を `tabular-nums` で添える
+
+## メッセージ行(`features/chat/MessageItem.tsx`)
+
+- ユーザー行は `bg-surface-2/70` で地から少し上げる。assistant 行は地のまま
+- アバターは 28px の角丸四角。ユーザーはアクセントの薄い面、assistant は `surface-3`
+- 行内の操作(編集・再生成・ここから分岐)は `ghost` の `sm` で、hover 時だけ表示。分岐ナビ `< 2/3 >` は常に表示
+- 使用量の行(モデル名・トークン・tok/s)は 11px `fg-subtle`。モデル名は `modelDisplayName()` で短くする
+- 思考過程は折りたたみ(`surface-2` の枠)。生成中は開き、終わったら閉じる
+
+## ツール関連(`features/chat/ToolBlocks.tsx`)
+
+- 呼び出しと結果はどちらも `surface-2` の枠付きカード。見出しは 12px、等幅のツール名 + 状態(実行中… / 完了 / エラー)
+- エラーは枠線を `danger/30` にし、アイコンを `danger` に。文字全体を赤くしない
+- 承認カードは `bg-accent/10 border-accent/40`。コード実行の権限一覧はラベルを `warning` で
+- ボタンは「許可」(default)、「この会話では常に許可」(secondary)、「拒否」(danger)の順
+
+## 一覧(サイドバー、設定のプロファイル一覧)
+
+- 行は `rounded-md px-2 py-1.5`、hover `surface-3`、選択 `bg-accent/10 text-fg`。未選択の文字は `fg-muted`
+- 2 行目(時刻、種別)は 11px `fg-subtle`
+- 行内の操作は hover で現れる `ghost` の `icon-sm`
+
+## 状態の表示
+
+| 状態         | 形                                           |
+| ------------ | -------------------------------------------- |
+| 生成中       | アクセントの点が点滅(サイドバー)、停止ボタン |
+| ツール実行中 | `Loader2` の回転 + 「実行中…」               |
+| モデル常駐   | 緑の点(`success`)+「常駐」                   |
+| ロード中     | 琥珀の点(`warning`)が点滅 +「ロード中」      |
+| エラー       | `danger/30` の枠 + `danger` のアイコン       |
+| 空           | 中央に 1 文 + 次の操作のボタン               |
+
+## 書かないこと
+
+- `text-red-400` のような Tailwind の生の色。意味色トークンを使う
+- `opacity` で文字を薄くする(`fg-muted` / `fg-subtle` を使う)
+- `shadow-xl` などトークン外の影
+- 位置を動かすアニメーション

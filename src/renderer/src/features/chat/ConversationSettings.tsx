@@ -12,7 +12,7 @@ import {
   useTools,
 } from '@renderer/lib/queries';
 import { groupToolsByCategory } from '@renderer/lib/tools';
-import { cn } from '@renderer/lib/utils';
+import { cn, modelDisplayName } from '@renderer/lib/utils';
 import { useToolCategoryToggle } from './ToolCategoryBar';
 
 type NumKey =
@@ -139,7 +139,7 @@ export function ConversationSettings({ conversation }: { conversation: Conversat
           保存
         </Button>
       </div>
-      {update.isError && <p className="text-xs text-red-400">{String(update.error)}</p>}
+      {update.isError && <p className="text-xs text-danger">{String(update.error)}</p>}
       {conversation.serverProfileId && conversation.model && (
         <ModelCapabilities profileId={conversation.serverProfileId} model={conversation.model} />
       )}
@@ -204,7 +204,7 @@ function ModelCapabilities({ profileId, model }: { profileId: string; model: str
         )}
       </div>
       <p className="text-fg-muted mb-2 truncate text-[11px]" title={model}>
-        {model}
+        {modelDisplayName(model)}
         {caps.data && (
           <>
             {' '}
@@ -235,7 +235,7 @@ function ModelCapabilities({ profileId, model }: { profileId: string; model: str
           </Select>
         </Field>
       </div>
-      {save.isError && <p className="mt-1 text-xs text-red-400">{String(save.error)}</p>}
+      {save.isError && <p className="mt-1 text-xs text-danger">{String(save.error)}</p>}
     </div>
   );
 }

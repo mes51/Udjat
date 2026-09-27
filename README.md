@@ -9,6 +9,7 @@ LAN 上のローカル LLM サーバー(Ollama / LM Studio / llama.cpp / vLLM)�
 ## ドキュメント
 
 計画は [docs/plan/00-overview.md](docs/plan/00-overview.md) から読む。
+UI の色・文字・部品の決めごとは [docs/design/README.md](docs/design/README.md)(デザインシステム)。トークンの実体は `src/renderer/src/index.css`。
 
 ## 開発
 

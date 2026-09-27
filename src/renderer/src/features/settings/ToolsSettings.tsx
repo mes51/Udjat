@@ -105,12 +105,9 @@ export function ToolsSettings() {
     <div className="flex flex-col gap-6">
       <section>
         <h3 className="mb-2 text-sm font-medium">ツールの承認ポリシー</h3>
-        <div className="flex flex-col gap-2">
+        <div className="border-border divide-border flex flex-col divide-y rounded-md border">
           {tools.data?.map((t) => (
-            <div
-              key={t.name}
-              className="border-border flex items-center gap-3 rounded-md border px-3 py-2"
-            >
+            <div key={t.name} className="flex items-center gap-3 px-3 py-2">
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2 font-mono text-sm">
                   {t.name}

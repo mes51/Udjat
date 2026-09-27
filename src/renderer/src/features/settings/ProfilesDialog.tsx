@@ -202,9 +202,9 @@ function ProfileForm({
             className={cn(
               'pb-1.5 text-xs whitespace-pre-line',
               test.state === 'ok'
-                ? 'text-emerald-400'
+                ? 'text-success'
                 : test.state === 'ng'
-                  ? 'text-red-400'
+                  ? 'text-danger'
                   : 'text-fg-muted',
             )}
           >
@@ -269,7 +269,7 @@ function ProfileForm({
           ))}
         </div>
       </div>
-      {err && <p className="text-xs text-red-400">{String(err)}</p>}
+      {err && <p className="text-xs text-danger">{String(err)}</p>}
       <div className="flex justify-between pt-2">
         {initial ? (
           <Button
@@ -356,8 +356,8 @@ export function ProfilesDialog() {
               type="button"
               onClick={() => setSelectedId(p.id)}
               className={cn(
-                'hover:bg-surface-3 block w-full rounded-md px-2 py-1.5 text-left text-sm',
-                effectiveId === p.id && 'bg-surface-3',
+                'hover:bg-surface-3 text-fg-muted block w-full rounded-md px-2 py-1.5 text-left text-sm transition-colors',
+                effectiveId === p.id && 'bg-accent/10 text-fg',
               )}
             >
               <div className="truncate">{p.name}</div>

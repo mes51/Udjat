@@ -54,7 +54,7 @@ function ToolCallRow({ call, activity }: { call: ToolCall; activity: ToolActivit
     <Collapsible.Root
       open={open}
       onOpenChange={setOpen}
-      className="border-border bg-surface/60 rounded-md border"
+      className="border-border bg-surface-2 rounded-md border"
     >
       <Collapsible.Trigger className="text-fg-muted hover:text-fg flex w-full items-center gap-1.5 px-2.5 py-1.5 text-xs">
         <ChevronRight size={14} className={cn('transition-transform', open && 'rotate-90')} />
@@ -62,7 +62,7 @@ function ToolCallRow({ call, activity }: { call: ToolCall; activity: ToolActivit
         <span className="font-mono">{call.name}</span>
         {running && <span className="ml-1">実行中…</span>}
         {activity?.status === 'done' && (
-          <span className={cn('ml-1', activity.isError && 'text-red-400')}>
+          <span className={cn('ml-1', activity.isError && 'text-danger')}>
             {activity.isError ? 'エラー' : '完了'}
             {activity.durationMs !== null && ` · ${formatDuration(activity.durationMs)}`}
           </span>
@@ -92,16 +92,16 @@ export function ToolResultCard({ message }: { message: Message }) {
         open={open}
         onOpenChange={setOpen}
         className={cn(
-          'border-border bg-surface/60 rounded-md border',
-          isError && 'border-red-500/30',
+          'border-border bg-surface-2 rounded-md border',
+          isError && 'border-danger/30',
         )}
       >
         <Collapsible.Trigger className="text-fg-muted hover:text-fg flex w-full items-center gap-1.5 px-2.5 py-1.5 text-xs">
           <ChevronRight size={14} className={cn('transition-transform', open && 'rotate-90')} />
           {isError ? (
-            <AlertTriangle size={13} className="text-red-400" />
+            <AlertTriangle size={13} className="text-danger" />
           ) : (
-            <Check size={13} className="text-emerald-400" />
+            <Check size={13} className="text-success" />
           )}
           <span className="font-mono">{meta?.name ?? 'tool'}</span>
           <span className="ml-1 opacity-70">
@@ -185,7 +185,7 @@ export function ApprovalCard({ callId }: { callId: string }) {
             <ul className="my-2 flex flex-col gap-0.5 text-xs">
               {code.perms.map((p) => (
                 <li key={p.label} className="flex gap-2">
-                  <span className="w-20 shrink-0 text-amber-300">{p.label}</span>
+                  <span className="w-20 shrink-0 text-warning">{p.label}</span>
                   <span className="font-mono break-all">{p.items.join(', ')}</span>
                 </li>
               ))}

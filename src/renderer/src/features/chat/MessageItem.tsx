@@ -18,7 +18,7 @@ import { PartMedia } from './AttachmentChips';
 import { useRef, useState } from 'react';
 import type { Message, Part, Usage } from '@shared/schemas';
 import { Button } from '@renderer/components/ui/button';
-import { cn, formatDuration } from '@renderer/lib/utils';
+import { cn, formatDuration, modelDisplayName } from '@renderer/lib/utils';
 import { useStreamStore, type StreamState } from '@renderer/state/stream-store';
 import { Markdown } from './Markdown';
 import { ApprovalCard, ToolCallList, ToolResultCard } from './ToolBlocks';
@@ -164,9 +164,9 @@ function ReasoningBlock({ text, streaming }: { text: string; streaming: boolean 
         setTouched(true);
         setOpen(o);
       }}
-      className="border-border bg-surface/60 mb-2 rounded-md border"
+      className="border-border bg-surface-2 mb-2 rounded-md border"
     >
-      <Collapsible.Trigger className="text-fg-muted hover:text-fg flex w-full items-center gap-1.5 px-2.5 py-1.5 text-xs">
+      <Collapsible.Trigger className="text-fg-muted hover:text-fg flex w-full items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs">
         <ChevronRight size={14} className={cn('transition-transform', open && 'rotate-90')} />
         <Brain size={13} />
         <span>{streaming ? '思考中…' : '思考過程'}</span>
@@ -244,7 +244,7 @@ function ToolMediaStrip({ message }: { message: Message }) {
 function UsageLine({ usage, model }: { usage: Usage | null; model: string | null }) {
   if (!usage && !model) return null;
   const parts: string[] = [];
-  if (model) parts.push(model);
+  if (model) parts.push(modelDisplayName(model));
   if (usage?.promptTokens !== undefined) parts.push(`in ${usage.promptTokens}`);
   if (usage?.completionTokens !== undefined) parts.push(`out ${usage.completionTokens}`);
   if (usage?.completionTokens !== undefined && usage.durationMs && usage.durationMs > 0) {
@@ -295,7 +295,7 @@ export function MessageItem({
       id={`msg-${message.id}`}
       className={cn(
         'group flex gap-3 px-4 py-3 transition-colors',
-        isUser && 'bg-surface-2/40',
+        isUser && 'bg-surface-2/70',
         highlighted && 'bg-accent/10',
       )}
     >
@@ -353,7 +353,7 @@ export function MessageItem({
           <ApprovalCard key={a.call.id} callId={a.call.id} />
         ))}
         {error && (
-          <div className="mt-2 flex items-start gap-1.5 rounded-md border border-red-500/30 bg-red-500/10 px-2.5 py-1.5 text-xs text-red-300">
+          <div className="mt-2 flex items-start gap-1.5 rounded-md border border-danger/30 bg-danger/10 px-2.5 py-1.5 text-xs text-danger">
             <AlertCircle size={14} className="mt-0.5 shrink-0" />
             <span className="break-all">{error}</span>
           </div>

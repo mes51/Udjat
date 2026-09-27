@@ -24,10 +24,10 @@ export function Dialog({
   return (
     <RadixDialog.Root open={open} onOpenChange={onOpenChange}>
       <RadixDialog.Portal>
-        <RadixDialog.Overlay className="fixed inset-0 z-40 bg-black/60" />
+        <RadixDialog.Overlay className="fixed inset-0 z-40 bg-black/55 backdrop-blur-[2px]" />
         <RadixDialog.Content
           className={cn(
-            'bg-surface-2 border-border fixed top-1/2 left-1/2 z-50 flex max-h-[85vh] w-[min(92vw,56rem)] -translate-x-1/2 -translate-y-1/2 flex-col rounded-lg border shadow-xl focus:outline-none',
+            'bg-surface-2 border-border shadow-overlay fixed top-1/2 left-1/2 z-50 flex max-h-[85vh] w-[min(92vw,56rem)] -translate-x-1/2 -translate-y-1/2 flex-col rounded-lg border focus:outline-none',
             className,
           )}
         >

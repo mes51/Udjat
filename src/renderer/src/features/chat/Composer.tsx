@@ -137,11 +137,11 @@ export function Composer({
             setPending((prev) => prev.map((p) => (p.attachment.id === id ? { ...p, range } : p)))
           }
         />
-        {error && <div className="px-1 pb-1 text-xs text-red-400">{error}</div>}
+        {error && <div className="px-1 pb-1 text-xs text-danger">{error}</div>}
         {!disabled && (
           <ToolCategoryBar conversation={conversation} toolsSupported={toolsSupported} />
         )}
-        <div className="border-border bg-surface-2 focus-within:ring-accent/50 flex items-end gap-2 rounded-lg border p-2 focus-within:ring-2">
+        <div className="border-border bg-surface-2 shadow-panel focus-within:border-accent/60 focus-within:ring-accent/20 flex items-end gap-2 rounded-xl border p-2 transition-colors focus-within:ring-2">
           <input
             ref={fileInput}
             type="file"
