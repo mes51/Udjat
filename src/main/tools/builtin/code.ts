@@ -76,7 +76,8 @@ export function createCodeTools({ store }: CodeToolDeps): RegisteredTool[] {
         'JavaScript(ES2023)をサンドボックスで実行し、console 出力と返り値を返す。計算、データ整形、文字列処理、添付ファイルの解析に使う。' +
         'ファイルやネットワークに触るには allow_read / allow_write / allow_net を宣言する(宣言外はエラー)。' +
         'サンドボックス内 API: udjat.readFile(path, encoding?) / udjat.writeFile(path, data) / udjat.readDir(path) / ' +
-        'udjat.fetch(url, {method, headers, body}) -> {status, headers, text} / udjat.attachments() / udjat.readAttachment(id, encoding?)。' +
+        'fetch(url, {method, headers, body}) -> Response 風 {status, ok, headers.get(), text(), json()}(udjat.fetch は {status, headers, text} を返す) / ' +
+        'udjat.attachments() / udjat.readAttachment(id, encoding?)。' +
         'いずれも Promise を返すので await する。トップレベル await 可。結果は console.log か return で返す。npm パッケージ・require・DOM は使えない。',
       parameters: {
         type: 'object',

@@ -179,16 +179,18 @@ input[type='checkbox'] {
   background: var(--color-fg-subtle);
 }
 
-/* shiki の 2 テーマ切替(defaultColor: false で出力した CSS 変数を使う) */
+/* shiki の 2 テーマ切替(defaultColor: false で出力した CSS 変数を使う)。
+   背景はテーマの色(ライトは純白)を使わず、コードブロックの面(surface)に統一する。
+   span にテーマ背景を付けると文字の部分だけ浮いて見えるので色だけを当てる */
 .shiki,
 .shiki span {
   color: var(--shiki-dark);
-  background-color: var(--shiki-dark-bg);
+  background-color: transparent;
 }
 :root[data-theme='light'] .shiki,
 :root[data-theme='light'] .shiki span {
   color: var(--shiki-light);
-  background-color: var(--shiki-light-bg);
+  background-color: transparent;
 }
 
 /* 細めのスクロールバー */

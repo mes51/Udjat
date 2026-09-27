@@ -45,10 +45,58 @@ describe('js sandbox', () => {
 
   it('has no access to node globals', async () => {
     const r = await runJavaScript(
-      `return [typeof require, typeof process, typeof fetch, typeof globalThis.__host_call, typeof udjat.readFile];`,
+      `return [typeof require, typeof process, typeof XMLHttpRequest, typeof globalThis.__host_call, typeof udjat.readFile];`,
       { timeoutMs: 5000, host: denyAll },
     );
     expect(r.result).toEqual(['undefined', 'undefined', 'undefined', 'function', 'function']);
+  });
+
+  it('exposes a Web-style global fetch that goes through the host', async () => {
+    const seen: { url: string; init: unknown }[] = [];
+    const r = await runJavaScript(
+      `const res = await fetch('https://api.example.com/items', { method: 'POST', headers: { 'X-Token': 'abc' }, body: { q: 1 } });
+       const data = await res.json();
+       const plain = await fetch('https://api.example.com/text');
+       let denied = null;
+       try { await fetch('https://evil.example/'); } catch (e) { denied = e.message; }
+       return { status: res.status, ok: res.ok, ct: res.headers.get('Content-Type'), data, text: await plain.text(), denied };`,
+      {
+        timeoutMs: 5000,
+        host: {
+          ...denyAll,
+          fetch: async (url, init) => {
+            if (url.includes('evil')) throw new Error('permission denied: fetch evil.example');
+            seen.push({ url, init });
+            return url.endsWith('/items')
+              ? {
+                  status: 201,
+                  headers: { 'Content-Type': 'application/json' },
+                  text: '{"id":7}',
+                  truncated: false,
+                }
+              : { status: 200, headers: {}, text: 'plain body', truncated: false };
+          },
+        },
+      },
+    );
+    expect(r.error).toBeUndefined();
+    expect(r.result).toEqual({
+      status: 201,
+      ok: true,
+      ct: 'application/json',
+      data: { id: 7 },
+      text: 'plain body',
+      denied: 'permission denied: fetch evil.example',
+    });
+    // オブジェクトの body は JSON 文字列にし、content-type を補う。ヘッダ名は小文字に揃える
+    expect(seen[0]).toEqual({
+      url: 'https://api.example.com/items',
+      init: {
+        method: 'POST',
+        headers: { 'x-token': 'abc', 'content-type': 'application/json' },
+        body: '{"q":1}',
+      },
+    });
   });
 
   it('interrupts infinite loops at the deadline', async () => {

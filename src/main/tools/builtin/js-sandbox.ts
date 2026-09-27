@@ -107,11 +107,42 @@ const PRELUDE = String.raw`
       return call('writeFile', { path, data: typeof data === 'string' ? data : fmt(data), encoding: 'utf8' });
     },
     readDir: (path) => call('readDir', { path }),
-    fetch: (url, init) => call('fetch', { url, init: init || {} }),
+    fetch: (url, init) => call('fetch', { url, init: normalizeInit(init) }),
     attachments: () => call('listAttachments', {}),
     readAttachment: readAs('readAttachment', 'id'),
     base64: Object.freeze({ encode: b64encode, decode: b64decode }),
   });
+  // Web 標準風の fetch(モデルは udjat.fetch より素の fetch を書きがち)。
+  // 応答は Response 風: status / ok / headers.get() / text() / json()
+  function normalizeInit(init) {
+    const i = init || {};
+    const headers = {};
+    if (i.headers && typeof i.headers === 'object')
+      for (const k of Object.keys(i.headers)) headers[String(k).toLowerCase()] = String(i.headers[k]);
+    const body = i.body == null ? undefined : typeof i.body === 'string' ? i.body : JSON.stringify(i.body);
+    if (body !== undefined && typeof i.body !== 'string' && !headers['content-type'])
+      headers['content-type'] = 'application/json';
+    return { method: i.method || 'GET', headers, ...(body !== undefined ? { body } : {}) };
+  }
+  const toResponse = (url, r) => {
+    const h = {};
+    for (const k of Object.keys(r.headers || {})) h[k.toLowerCase()] = r.headers[k];
+    return Object.freeze({
+      url,
+      status: r.status,
+      ok: r.status >= 200 && r.status < 300,
+      statusText: '',
+      truncated: !!r.truncated,
+      headers: Object.freeze({
+        get: (k) => h[String(k).toLowerCase()] ?? null,
+        has: (k) => String(k).toLowerCase() in h,
+        entries: () => Object.entries(h),
+      }),
+      text: () => Promise.resolve(r.text),
+      json: () => Promise.resolve().then(() => JSON.parse(r.text)),
+    });
+  };
+  globalThis.fetch = (url, init) => udjat.fetch(String(url), init).then((r) => toResponse(String(url), r));
 })();
 `;
 
