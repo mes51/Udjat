@@ -52,7 +52,7 @@
 
 ## 一覧(サイドバー、設定のプロファイル一覧)
 
-- 行は `rounded-md px-2 py-1.5`、hover `surface-3`、選択 `bg-accent/10 text-fg`。未選択の文字は `fg-muted`
+- 行は `rounded-md px-2 py-1.5`、hover `surface-3`、選択 `bg-accent-soft text-fg`。未選択の文字は `fg-muted`
 - 2 行目(時刻、種別)は 11px `fg-subtle`
 - 行内の操作は hover で現れる `ghost` の `icon-sm`
 

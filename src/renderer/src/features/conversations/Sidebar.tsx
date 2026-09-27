@@ -149,7 +149,7 @@ export function Sidebar() {
               onKeyDown={(e) => e.key === 'Enter' && select(c.id)}
               className={cn(
                 'group hover:bg-surface-3 text-fg-muted flex cursor-pointer items-center gap-1 rounded-md px-2 py-1.5 text-sm transition-colors',
-                selected === c.id && 'bg-accent/10 text-fg',
+                selected === c.id && 'bg-accent-soft text-fg',
               )}
             >
               <div className="min-w-0 flex-1">

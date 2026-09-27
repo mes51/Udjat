@@ -45,7 +45,7 @@ LAN 上の LLM サーバーに、動画やファイルを添えて長い会話�
 
 - 間隔は 4px 刻み。要素の間は `gap`、外周は `padding`。兄弟間に個別の `margin` を足さない
 - 角丸は役割で決める: `sm`(6px)入力欄・チップ・kbd、`md`(8px)ボタン・カード・行、`lg`(12px)ダイアログ・パネル、`xl`(14px)入力欄の外枠。`rounded-full` はチップと点だけ
-- 一覧の行の高さは 32px を基準にし、hover は面(`surface-3`)、選択は `accent/10`
+- 一覧の行の高さは 32px を基準にし、hover は面(`surface-3`)、選択は `accent-soft`
 
 ## 動き
 

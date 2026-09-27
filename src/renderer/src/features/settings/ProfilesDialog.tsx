@@ -357,7 +357,7 @@ export function ProfilesDialog() {
               onClick={() => setSelectedId(p.id)}
               className={cn(
                 'hover:bg-surface-3 text-fg-muted block w-full rounded-md px-2 py-1.5 text-left text-sm transition-colors',
-                effectiveId === p.id && 'bg-accent/10 text-fg',
+                effectiveId === p.id && 'bg-accent-soft text-fg',
               )}
             >
               <div className="truncate">{p.name}</div>

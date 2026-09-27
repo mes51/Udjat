@@ -24,7 +24,7 @@
   --color-accent: #e2a94f;
   --color-accent-strong: #eebb6a;
   --color-accent-fg: #1b1508;
-  --color-accent-soft: rgba(226, 169, 79, 0.14);
+  --color-accent-soft: rgba(226, 169, 79, 0.24);
   /* 意味色(状態の表示にだけ使う。アクセントとは役割を分ける) */
   --color-success: #62b98c;
   --color-warning: #e08a3c;
