@@ -73,23 +73,6 @@ function numToStr(v: number | undefined): string {
   return v === undefined ? '' : String(v);
 }
 
-/** 思考セレクトの値: '' = サーバー既定, 'on' / 'off', 'level:<name>' = 有効 + レベル */
-function thinkValue(p: ChatParams): string {
-  if (p.think === false) return 'off';
-  if (p.reasoningEffort) return `level:${p.reasoningEffort}`;
-  return p.think === true ? 'on' : '';
-}
-
-/** モデルが対応するレベルに、保存済みで一覧に無い値があればそれも足す */
-function thinkLevelOptions(levels: string[], current: string): string[] {
-  const out = [...levels];
-  if (current.startsWith('level:')) {
-    const cur = current.slice('level:'.length);
-    if (!out.includes(cur)) out.push(cur);
-  }
-  return out;
-}
-
 /** スライダーと数値入力を並べた 1 項目。空文字 = 既定(サーバーに任せる) */
 function ParamSlider({
   field,
@@ -167,12 +150,10 @@ function SectionTitle({
 
 export function ConversationSettings({ conversation }: { conversation: Conversation }) {
   const { update } = useConversationMutations();
-  const caps = useCapabilities(conversation.serverProfileId, conversation.model);
   const [systemPrompt, setSystemPrompt] = useState(conversation.systemPrompt ?? '');
   const [params, setParams] = useState<Record<NumKey, string>>(() =>
     toStrings(conversation.params),
   );
-  const [think, setThink] = useState<string>(thinkValue(conversation.params));
   const [dirty, setDirty] = useState(false);
 
   // 会話が切り替わった / 保存後に props が更新された時にフォームを同期する(render 中の state 調整パターン)
@@ -182,7 +163,6 @@ export function ConversationSettings({ conversation }: { conversation: Conversat
     if (synced.id !== conversation.id || !dirty) {
       setSystemPrompt(conversation.systemPrompt ?? '');
       setParams(toStrings(conversation.params));
-      setThink(thinkValue(conversation.params));
       setDirty(false);
     }
   }
@@ -196,12 +176,10 @@ export function ConversationSettings({ conversation }: { conversation: Conversat
       if (!Number.isFinite(n)) continue;
       next[f.key] = n;
     }
-    if (think === 'off') next.think = false;
-    else if (think === 'on') next.think = true;
-    else if (think.startsWith('level:')) {
-      next.think = true;
-      next.reasoningEffort = think.slice('level:'.length);
-    }
+    // 思考の設定は入力欄側で即保存しているので、ここでは保存済みの値を引き継ぐ
+    if (conversation.params.think !== undefined) next.think = conversation.params.think;
+    if (conversation.params.reasoningEffort)
+      next.reasoningEffort = conversation.params.reasoningEffort;
     update.mutate({
       id: conversation.id,
       patch: { systemPrompt: systemPrompt.trim() === '' ? null : systemPrompt, params: next },
@@ -256,44 +234,10 @@ export function ConversationSettings({ conversation }: { conversation: Conversat
               />
             </Field>
           ))}
-          <Field
-            label="思考 (thinking)"
-            {...(caps.data?.reasoning === false
-              ? { hint: 'このモデルは思考非対応と推定。切替は即保存されます' }
-              : (caps.data?.reasoningLevels.length ?? 0) > 0
-                ? { hint: 'レベルはモデルのテンプレートから検出。切替は即保存されます' }
-                : { hint: '切替は即保存されます' })}
-          >
-            <Select
-              value={think}
-              onChange={(e) => {
-                // 思考の切替は頻繁に使うので、保存ボタンを待たずにその場で保存する
-                // (未保存の数値編集はそのまま残す)
-                const v = e.target.value;
-                setThink(v);
-                const next: ChatParams = { ...conversation.params };
-                delete next.think;
-                delete next.reasoningEffort;
-                if (v === 'off') next.think = false;
-                else if (v === 'on') next.think = true;
-                else if (v.startsWith('level:')) {
-                  next.think = true;
-                  next.reasoningEffort = v.slice('level:'.length);
-                }
-                update.mutate({ id: conversation.id, patch: { params: next } });
-              }}
-            >
-              <option value="">サーバー既定</option>
-              <option value="on">有効</option>
-              {thinkLevelOptions(caps.data?.reasoningLevels ?? [], think).map((l) => (
-                <option key={l} value={`level:${l}`}>
-                  有効 ({l})
-                </option>
-              ))}
-              <option value="off">無効</option>
-            </Select>
-          </Field>
         </div>
+        <p className="text-fg-subtle mt-2 text-[11px]">
+          思考(thinking)の有無とレベルは入力欄の上で切り替えます(即保存)
+        </p>
         <div className="mt-3 flex items-center justify-end gap-2">
           {dirty && <span className="text-fg-subtle text-[11px]">未保存の変更があります</span>}
           <Button onClick={save} disabled={!dirty || update.isPending}>

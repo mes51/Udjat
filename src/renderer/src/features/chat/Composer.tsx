@@ -11,6 +11,7 @@ import type { AttachmentRef, Conversation } from '@shared/schemas';
 import { Button } from '@renderer/components/ui/button';
 import { addFile } from '@renderer/lib/attachments';
 import { AttachmentChips, toRefs, type PendingAttachment } from './AttachmentChips';
+import { ThinkingControl } from './ThinkingControl';
 import { ToolCategoryBar } from './ToolCategoryBar';
 
 export interface ComposerProps {
@@ -139,7 +140,14 @@ export function Composer({
         />
         {error && <div className="px-1 pb-1 text-xs text-danger">{error}</div>}
         {!disabled && (
-          <ToolCategoryBar conversation={conversation} toolsSupported={toolsSupported} />
+          <div className="flex items-start gap-2 pb-1.5">
+            <div className="min-w-0 flex-1">
+              <ToolCategoryBar conversation={conversation} toolsSupported={toolsSupported} />
+            </div>
+            <div className="shrink-0 pr-1">
+              <ThinkingControl conversation={conversation} />
+            </div>
+          </div>
         )}
         <div className="border-border bg-surface-2 shadow-panel focus-within:border-accent/60 focus-within:ring-accent/20 flex items-end gap-2 rounded-xl border p-2 transition-colors focus-within:ring-2">
           <input
