@@ -4,7 +4,7 @@ LAN 上のローカル LLM サーバー(Ollama / LM Studio / llama.cpp / vLLM)�
 動画を添付し、LLM 自身がツール呼び出しでフレームを取り出して理解できることを中核機能とする。
 
 - 形態: Electron + React + TypeScript
-- 状態: M0〜M6 まで実装済み(v1 の計画範囲は完了)。運用フィードバック第 1 弾(M7〜M11、[docs/plan/07-feedback-round-1.md](docs/plan/07-feedback-round-1.md))を実装中
+- 状態: M0〜M6(v1)と運用フィードバック第 1 弾(M7〜M11、[docs/plan/07-feedback-round-1.md](docs/plan/07-feedback-round-1.md))を実装済み。第 2 弾としてファイルアクセスツール(M12、[docs/plan/08-file-tools.md](docs/plan/08-file-tools.md))を追加
 
 ## ドキュメント
 

@@ -45,6 +45,11 @@ export interface RegisteredTool {
    * (例: run_javascript がファイル/ネットワーク権限を宣言した時)
    */
   requiresApproval?: (args: Record<string, unknown>) => boolean;
+  /**
+   * 今は使えない理由を返す(使える時は null)。理由がある間はモデルに定義を渡さず、
+   * UI では灰色表示にする(例: ファイルツールで許可フォルダが未設定)
+   */
+  unavailable?: () => string | null;
   execute: (args: Record<string, unknown>, ctx: ToolContext) => Promise<ToolResult>;
 }
 

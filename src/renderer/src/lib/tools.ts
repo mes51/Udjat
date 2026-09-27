@@ -5,6 +5,8 @@ export interface ToolCategory {
   id: string;
   label: string;
   tools: ToolInfo[];
+  /** カテゴリの全ツールが今使えない時、その理由(例: 許可フォルダ未設定) */
+  unavailable?: string;
 }
 
 /** ツール一覧をカテゴリごとにまとめる。組み込みは定義順、MCP サーバーはその後に名前順 */
@@ -17,6 +19,10 @@ export function groupToolsByCategory(tools: ToolInfo[]): ToolCategory[] {
       map.set(t.category, c);
     }
     c.tools.push(t);
+  }
+  for (const c of map.values()) {
+    const reason = c.tools[0]?.unavailable;
+    if (reason && c.tools.every((t) => t.unavailable)) c.unavailable = reason;
   }
   const order = (id: string) => {
     const i = (BUILTIN_TOOL_CATEGORIES as readonly string[]).indexOf(id);

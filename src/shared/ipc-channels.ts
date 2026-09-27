@@ -55,6 +55,7 @@ export const IPC_INVOKE_CHANNELS = [
   'settings:exportAll',
   'settings:importAll',
   'files:open',
+  'files:pickDirectory',
 ] as const;
 
 /** main -> renderer の一方向イベントチャネル */

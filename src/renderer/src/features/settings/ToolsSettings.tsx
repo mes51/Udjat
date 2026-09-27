@@ -1,8 +1,11 @@
-import { Plug } from 'lucide-react';
+import { useQueryClient } from '@tanstack/react-query';
+import { FolderPlus, Plug, Trash2 } from 'lucide-react';
 import { useState } from 'react';
-import type { ToolPolicy } from '@shared/schemas';
+import type { FsRoot, ToolPolicy } from '@shared/schemas';
+import { Button } from '@renderer/components/ui/button';
 import { Field, Input, Select } from '@renderer/components/ui/input';
 import { Section, SectionTitle } from '@renderer/components/ui/section';
+import { invoke } from '@renderer/lib/ipc';
 import {
   useSetting,
   useSettingMutation,
@@ -104,6 +107,92 @@ function WebSearchSettings() {
   );
 }
 
+/**
+ * ファイルツールの許可フォルダ。「ファイル」カテゴリの直下に置く。
+ * 行の追加・削除・書き込みチェックは即保存、パスの手入力はフォーカスを外した時に保存する。
+ */
+function FileRootsSettings() {
+  const roots = useSetting<FsRoot[]>('fs.roots');
+  const save = useSettingMutation();
+  const qc = useQueryClient();
+  const [draft, setDraft] = useState<Record<number, string>>({});
+  if (!roots.isFetched) return <p className="text-fg-muted text-xs">読み込み中…</p>;
+  const cur = Array.isArray(roots.data) ? roots.data : [];
+  const commit = (next: FsRoot[]) =>
+    save.mutate(
+      { key: 'fs.roots', value: next },
+      // 許可フォルダの有無でツールの可用性(灰色表示)が変わる
+      { onSuccess: () => void qc.invalidateQueries({ queryKey: ['tools'] }) },
+    );
+  const pick = async () => {
+    const path = await invoke('files:pickDirectory', {});
+    if (!path) return;
+    if (cur.some((r) => r.path.toLowerCase() === path.toLowerCase())) return;
+    commit([...cur, { path, write: false }]);
+  };
+  const commitPath = (i: number) => {
+    const text = draft[i];
+    if (text === undefined) return;
+    setDraft((d) => {
+      const { [i]: _drop, ...rest } = d;
+      return rest;
+    });
+    const path = text.trim();
+    if (path === '' || path === cur[i]?.path) return;
+    commit(cur.map((r, j) => (j === i ? { ...r, path } : r)));
+  };
+
+  return (
+    <div className="border-border bg-surface-2/60 flex flex-col gap-2 rounded-md border px-3 py-3">
+      <div className="text-xs font-medium">許可するフォルダ</div>
+      <p className="text-fg-muted text-[11px]">
+        fs_list / fs_read / fs_write
+        はここに登録したフォルダの配下だけを扱います。書き込みはチェックしたフォルダだけ。1
+        つも無い間はファイルツールをモデルに渡しません
+      </p>
+      {cur.length > 0 && (
+        <ul className="flex flex-col gap-1.5">
+          {cur.map((r, i) => (
+            <li key={i} className="flex items-center gap-2">
+              <Input
+                value={draft[i] ?? r.path}
+                aria-label={`許可フォルダ ${i + 1}`}
+                className="min-w-0 flex-1 font-mono text-xs"
+                onChange={(e) => setDraft((d) => ({ ...d, [i]: e.target.value }))}
+                onBlur={() => commitPath(i)}
+                onKeyDown={(e) => e.key === 'Enter' && commitPath(i)}
+              />
+              <label className="flex shrink-0 items-center gap-1 text-xs">
+                <input
+                  type="checkbox"
+                  checked={r.write}
+                  onChange={(e) =>
+                    commit(cur.map((x, j) => (j === i ? { ...x, write: e.target.checked } : x)))
+                  }
+                />
+                書き込み
+              </label>
+              <Button
+                variant="ghost"
+                size="sm"
+                aria-label="この許可フォルダを削除"
+                onClick={() => commit(cur.filter((_x, j) => j !== i))}
+              >
+                <Trash2 size={13} />
+              </Button>
+            </li>
+          ))}
+        </ul>
+      )}
+      <div>
+        <Button variant="secondary" size="sm" onClick={() => void pick()}>
+          <FolderPlus size={13} /> フォルダを追加…
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 /** カテゴリ 1 つ分の承認ポリシー一覧 */
 function CategoryPolicies({ category }: { category: ToolCategory }) {
   const setPolicy = useToolPolicyMutation();
@@ -117,6 +206,9 @@ function CategoryPolicies({ category }: { category: ToolCategory }) {
           {isMcp ? 'MCP · ' : ''}
           {category.tools.length} 件
         </span>
+        {category.unavailable && (
+          <span className="text-warning ml-auto font-normal">{category.unavailable}</span>
+        )}
       </div>
       {category.tools.map((t) => (
         <div key={t.name} className="flex items-start gap-3 px-3 py-2">
@@ -159,6 +251,7 @@ export function ToolsSettings() {
             <div key={c.id} className="flex flex-col gap-2">
               <CategoryPolicies category={c} />
               {c.id === 'web' && <WebSearchSettings />}
+              {c.id === 'files' && <FileRootsSettings />}
             </div>
           ))}
           {cats.length === 0 && <p className="text-fg-muted text-xs">ツールはありません</p>}

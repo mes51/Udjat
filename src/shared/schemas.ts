@@ -210,18 +210,28 @@ export const ToolInfoSchema = z.object({
   /** 組み込みは basic / web / video / pdf / code、MCP は "mcp:<serverId>" */
   category: z.string(),
   categoryLabel: z.string(),
+  /** 今は使えない理由(例: ファイルツールで許可フォルダが未設定)。使える時は無し */
+  unavailable: z.string().optional(),
 });
 export type ToolInfo = z.infer<typeof ToolInfoSchema>;
 
 /** 組み込みツールのカテゴリ(表示順) */
-export const BUILTIN_TOOL_CATEGORIES = ['basic', 'web', 'video', 'pdf', 'code'] as const;
+export const BUILTIN_TOOL_CATEGORIES = ['basic', 'web', 'files', 'video', 'pdf', 'code'] as const;
 export const TOOL_CATEGORY_LABELS: Record<(typeof BUILTIN_TOOL_CATEGORIES)[number], string> = {
   basic: '基本',
   web: 'Web',
+  files: 'ファイル',
   video: '動画',
   pdf: 'PDF',
   code: 'コード',
 };
+
+/** ファイルツールが扱える許可フォルダ(設定 fs.roots) */
+export const FsRootSchema = z.object({
+  path: z.string(),
+  write: z.boolean(),
+});
+export type FsRoot = z.infer<typeof FsRootSchema>;
 
 /** 会話ごとのツール有効設定(除外リスト方式。空なら全部有効) */
 export interface ToolFilter {

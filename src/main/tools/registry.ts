@@ -41,14 +41,18 @@ export class ToolRegistry {
   }
 
   list(): ToolInfo[] {
-    return [...this.tools.values()].map((t) => ({
-      name: t.definition.name,
-      description: t.definition.description,
-      source: t.source.kind,
-      policy: this.policyFor(t.definition.name),
-      category: t.category,
-      categoryLabel: categoryLabelOf(t),
-    }));
+    return [...this.tools.values()].map((t) => {
+      const reason = t.unavailable?.() ?? null;
+      return {
+        name: t.definition.name,
+        description: t.definition.description,
+        source: t.source.kind,
+        policy: this.policyFor(t.definition.name),
+        category: t.category,
+        categoryLabel: categoryLabelOf(t),
+        ...(reason ? { unavailable: reason } : {}),
+      };
+    });
   }
 
   policyFor(name: string): ToolPolicy {
@@ -82,6 +86,7 @@ export class ToolRegistry {
       if (filter.disabledTools.includes(t.definition.name)) continue;
       if (this.policyFor(t.definition.name) === 'deny') continue;
       if (t.requires && !satisfies(capabilities, t.requires)) continue;
+      if (t.unavailable?.()) continue;
       out.push(t.definition);
     }
     return out;

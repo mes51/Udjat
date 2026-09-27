@@ -271,6 +271,11 @@ export const ipcInvokeSchema = {
     input: z.object({ extensions: z.array(z.string()).optional() }),
     output: z.object({ path: z.string(), content: z.string() }).nullable(),
   },
+  /** フォルダ選択ダイアログ。キャンセルなら null */
+  'files:pickDirectory': {
+    input: z.object({ defaultPath: z.string().optional() }),
+    output: z.string().nullable(),
+  },
 } as const satisfies Record<IpcInvokeChannel, { input: z.ZodType; output: z.ZodType }>;
 
 export const ipcEventSchema = {

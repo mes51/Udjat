@@ -266,6 +266,16 @@ export function registerIpcHandlers(ctx: AppContext): void {
     if (r.canceled || !path) return null;
     return { path, content: readFileSync(path, 'utf8') };
   });
+  handleIpc('files:pickDirectory', async ({ defaultPath }) => {
+    const win = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0];
+    const opts = {
+      properties: ['openDirectory' as const],
+      ...(defaultPath ? { defaultPath } : {}),
+    };
+    const r = win ? await dialog.showOpenDialog(win, opts) : await dialog.showOpenDialog(opts);
+    const path = r.filePaths[0];
+    return r.canceled || !path ? null : path;
+  });
 
   // --- MCP ---
   handleIpc('mcp:list', () => {

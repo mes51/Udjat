@@ -52,18 +52,22 @@ export function ToolCategoryBar({
           (t) => t.policy !== 'deny' && !conversation.disabledTools.includes(t.name),
         ).length;
         const partial = on && active < c.tools.length;
+        const names = c.tools.map((t) => t.name).join(', ');
         return (
           <button
             key={c.id}
             type="button"
             aria-pressed={on}
-            title={`${on ? '有効' : '無効'}: ${c.tools.map((t) => t.name).join(', ')}`}
+            title={
+              c.unavailable ? `${c.unavailable}: ${names}` : `${on ? '有効' : '無効'}: ${names}`
+            }
             onClick={() => toggle(c.id)}
             className={cn(
               'inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] transition-colors',
-              on
+              on && !c.unavailable
                 ? 'border-accent/60 bg-accent/15 text-fg hover:bg-accent/25'
                 : 'border-border text-fg-muted hover:bg-surface-3 opacity-70',
+              on && c.unavailable && 'border-dashed',
             )}
           >
             {c.id.startsWith('mcp:') && <Plug size={10} />}

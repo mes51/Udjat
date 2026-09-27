@@ -143,6 +143,24 @@ function parseCodeArgs(args: string): {
   }
 }
 
+/** fs_write の引数(承認カードでパス・モードと内容を分けて見せる) */
+function parseWriteArgs(args: string): { path: string; mode: string; content: string } | null {
+  try {
+    const a = JSON.parse(args) as Record<string, unknown>;
+    if (typeof a['path'] !== 'string') return null;
+    const mode = a['mode'] === 'append' ? '追記' : a['mode'] === 'create' ? '新規作成' : '上書き';
+    const content =
+      a['encoding'] === 'base64'
+        ? `(base64 ${typeof a['content'] === 'string' ? a['content'].length : 0} 文字)`
+        : typeof a['content'] === 'string'
+          ? a['content']
+          : '';
+    return { path: a['path'], mode, content };
+  } catch {
+    return null;
+  }
+}
+
 /** 承認待ちカード */
 export function ApprovalCard({ callId }: { callId: string }) {
   const approval = useStreamStore((s) => s.approvals[callId]);
@@ -160,6 +178,7 @@ export function ApprovalCard({ callId }: { callId: string }) {
     }
   };
   const code = approval.call.name === 'run_javascript' ? parseCodeArgs(approval.call.args) : null;
+  const write = approval.call.name === 'fs_write' ? parseWriteArgs(approval.call.args) : null;
 
   return (
     <div className="border-accent/40 bg-accent/10 mt-2 rounded-md border px-3 py-2 text-sm">
@@ -172,6 +191,8 @@ export function ApprovalCard({ callId }: { callId: string }) {
             ) : (
               'コードの実行を許可しますか?(ファイル・ネットワークへのアクセスはありません)'
             )
+          ) : write ? (
+            'ファイルへの書き込みを許可しますか?'
           ) : (
             <>
               ツール <span className="font-mono">{approval.call.name}</span> の実行を許可しますか?
@@ -179,7 +200,19 @@ export function ApprovalCard({ callId }: { callId: string }) {
           )}
         </span>
       </div>
-      {code ? (
+      {write ? (
+        <>
+          <ul className="my-2 flex flex-col gap-0.5 text-xs">
+            <li className="flex gap-2">
+              <span className="w-20 shrink-0 text-warning">{write.mode}</span>
+              <span className="font-mono break-all">{write.path}</span>
+            </li>
+          </ul>
+          <pre className="text-fg border-border bg-surface my-2 max-h-64 overflow-auto rounded border px-2 py-1.5 text-[11px] leading-relaxed whitespace-pre-wrap">
+            {write.content}
+          </pre>
+        </>
+      ) : code ? (
         <>
           {code.perms.length > 0 && (
             <ul className="my-2 flex flex-col gap-0.5 text-xs">
