@@ -1,8 +1,16 @@
-import type { Capabilities, ToolInfo, ToolPolicy } from '@shared/schemas';
+import type { Capabilities, ToolFilter, ToolInfo, ToolPolicy } from '@shared/schemas';
+import { TOOL_CATEGORY_LABELS } from '@shared/schemas';
 import type { ToolDefinition } from '@main/providers';
 import type { Database } from '@main/db/client';
 import type { RegisteredTool, ToolContext, ToolResult } from './types';
 import { ToolError } from './types';
+
+const EMPTY_FILTER: ToolFilter = { disabledCategories: [], disabledTools: [] };
+
+function categoryLabelOf(t: RegisteredTool): string {
+  if (t.categoryLabel) return t.categoryLabel;
+  return (TOOL_CATEGORY_LABELS as Record<string, string>)[t.category] ?? t.category;
+}
 
 /**
  * ツール定義の集約。組み込みツールと MCP ツール(M5)を同じ形で扱う。
@@ -38,6 +46,8 @@ export class ToolRegistry {
       description: t.definition.description,
       source: t.source.kind,
       policy: this.policyFor(t.definition.name),
+      category: t.category,
+      categoryLabel: categoryLabelOf(t),
     }));
   }
 
@@ -62,13 +72,14 @@ export class ToolRegistry {
   }
 
   /**
-   * モデルに渡すツール定義。capability を満たさないものと、会話で無効化されたものを除く。
-   * enabled が null なら全部。
+   * モデルに渡すツール定義。capability を満たさないもの、ポリシー deny のもの、
+   * 会話で無効化されたカテゴリ・ツールを除く。
    */
-  definitionsFor(capabilities: Capabilities, enabled: string[] | null): ToolDefinition[] {
+  definitionsFor(capabilities: Capabilities, filter: ToolFilter = EMPTY_FILTER): ToolDefinition[] {
     const out: ToolDefinition[] = [];
     for (const t of this.tools.values()) {
-      if (enabled && !enabled.includes(t.definition.name)) continue;
+      if (filter.disabledCategories.includes(t.category)) continue;
+      if (filter.disabledTools.includes(t.definition.name)) continue;
       if (this.policyFor(t.definition.name) === 'deny') continue;
       if (t.requires && !satisfies(capabilities, t.requires)) continue;
       out.push(t.definition);

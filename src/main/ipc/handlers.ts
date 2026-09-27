@@ -100,9 +100,14 @@ export function registerIpcHandlers(ctx: AppContext): void {
       (serverProfileId ? ctx.profiles.get(serverProfileId) : null) ??
       ctx.profiles.list()[0] ??
       null;
+    // 入力欄で最後に切り替えたカテゴリの状態を新しい会話にも引き継ぐ
+    const defaults = settings.get('tools.defaultDisabledCategories');
     return ctx.conversations.create({
       serverProfileId: profile?.id ?? null,
       model: model ?? profile?.defaultModel ?? null,
+      disabledCategories: Array.isArray(defaults)
+        ? defaults.filter((x): x is string => typeof x === 'string')
+        : [],
     });
   });
   handleIpc('conversations:get', ({ id }) => ctx.conversations.get(id));

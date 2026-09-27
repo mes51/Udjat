@@ -11,6 +11,9 @@ import {
   useProfiles,
   useTools,
 } from '@renderer/lib/queries';
+import { groupToolsByCategory } from '@renderer/lib/tools';
+import { cn } from '@renderer/lib/utils';
+import { useToolCategoryToggle } from './ToolCategoryBar';
 
 type NumKey =
   | 'temperature'
@@ -237,31 +240,37 @@ function ModelCapabilities({ profileId, model }: { profileId: string; model: str
   );
 }
 
-/** この会話で使うツールの選択(null = 全部)。切り替えは即保存する */
+/** この会話で使うツール。カテゴリ単位は入力欄のチップと共通、個別ツールはここだけ。切り替えは即保存 */
 function ConversationTools({ conversation }: { conversation: Conversation }) {
   const tools = useTools();
   const caps = useCapabilities(conversation.serverProfileId, conversation.model);
   const { update } = useConversationMutations();
-  const all = tools.data ?? [];
-  const enabled = conversation.enabledTools;
-  const isOn = (name: string) => enabled === null || enabled.includes(name);
+  const toggleCategory = useToolCategoryToggle(conversation);
+  const cats = groupToolsByCategory(tools.data ?? []);
+  const { disabledCategories, disabledTools } = conversation;
 
-  const toggle = (name: string) => {
-    const current = enabled ?? all.map((t) => t.name);
-    const next = current.includes(name) ? current.filter((n) => n !== name) : [...current, name];
-    const allOn = all.every((t) => next.includes(t.name));
-    update.mutate({ id: conversation.id, patch: { enabledTools: allOn ? null : next } });
+  const toggleTool = (name: string) => {
+    const next = disabledTools.includes(name)
+      ? disabledTools.filter((n) => n !== name)
+      : [...disabledTools, name];
+    update.mutate({ id: conversation.id, patch: { disabledTools: next } });
   };
+  const anyOff = disabledCategories.length > 0 || disabledTools.length > 0;
 
   return (
     <div className="border-border mt-2 border-t pt-3">
       <div className="mb-1 flex items-center justify-between">
         <h4 className="text-xs font-medium">この会話で使うツール</h4>
-        {enabled !== null && (
+        {anyOff && (
           <button
             type="button"
             className="text-accent text-[11px]"
-            onClick={() => update.mutate({ id: conversation.id, patch: { enabledTools: null } })}
+            onClick={() =>
+              update.mutate({
+                id: conversation.id,
+                patch: { disabledCategories: [], disabledTools: [] },
+              })
+            }
           >
             すべて有効にする
           </button>
@@ -272,20 +281,42 @@ function ConversationTools({ conversation }: { conversation: Conversation }) {
           このモデルはツール呼び出し非対応と推定されています
         </p>
       )}
-      <div className="flex flex-col gap-1">
-        {all.map((t) => (
-          <label key={t.name} className="flex items-center gap-2 text-xs">
-            <input
-              type="checkbox"
-              checked={isOn(t.name)}
-              disabled={t.policy === 'deny'}
-              onChange={() => toggle(t.name)}
-            />
-            <span className="font-mono">{t.name}</span>
-            {t.policy === 'deny' && <span className="text-fg-muted">(設定で無効)</span>}
-            {t.policy === 'ask' && <span className="text-fg-muted">(毎回確認)</span>}
-          </label>
-        ))}
+      {cats.length === 0 && <p className="text-fg-muted text-[11px]">ツールはありません</p>}
+      <div className="flex flex-col gap-2">
+        {cats.map((c) => {
+          const catOn = !disabledCategories.includes(c.id);
+          return (
+            <div key={c.id}>
+              <label className="flex items-center gap-2 text-xs font-medium">
+                <input type="checkbox" checked={catOn} onChange={() => toggleCategory(c.id)} />
+                <span>{c.label}</span>
+                <span className="text-fg-muted font-normal">
+                  {c.id.startsWith('mcp:') ? 'MCP' : ''} {c.tools.length} 件
+                </span>
+              </label>
+              <div className="mt-0.5 ml-5 flex flex-col gap-0.5">
+                {c.tools.map((t) => (
+                  <label
+                    key={t.name}
+                    className={cn('flex items-center gap-2 text-xs', !catOn && 'opacity-50')}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={!disabledTools.includes(t.name)}
+                      disabled={t.policy === 'deny' || !catOn}
+                      onChange={() => toggleTool(t.name)}
+                    />
+                    <span className="font-mono" title={t.description}>
+                      {t.name}
+                    </span>
+                    {t.policy === 'deny' && <span className="text-fg-muted">(設定で無効)</span>}
+                    {t.policy === 'ask' && <span className="text-fg-muted">(毎回確認)</span>}
+                  </label>
+                ))}
+              </div>
+            </div>
+          );
+        })}
       </div>
     </div>
   );

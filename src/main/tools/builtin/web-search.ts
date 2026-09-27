@@ -227,6 +227,7 @@ export function createWebSearchTool(
       },
     },
     source: { kind: 'builtin' },
+    category: 'web',
     defaultPolicy: 'auto',
     execute: async (args, ctx) => {
       const query = str(args, 'query');

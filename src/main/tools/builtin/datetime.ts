@@ -10,6 +10,7 @@ export const currentDatetimeTool: RegisteredTool = {
     parameters: { type: 'object', properties: {}, additionalProperties: false },
   },
   source: { kind: 'builtin' },
+  category: 'basic',
   defaultPolicy: 'auto',
   execute: async () => {
     const now = new Date();

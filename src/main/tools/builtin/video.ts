@@ -65,6 +65,7 @@ export function createVideoTools({ store, ops }: VideoToolDeps): RegisteredTool[
       },
     },
     source: { kind: 'builtin' },
+    category: 'video',
     defaultPolicy: 'auto',
     execute: async (args) => ok(JSON.stringify(infoOf(requireVideo(store, str(args, 'video_id'))))),
   };
@@ -91,6 +92,7 @@ export function createVideoTools({ store, ops }: VideoToolDeps): RegisteredTool[
       },
     },
     source: { kind: 'builtin' },
+    category: 'video',
     defaultPolicy: 'auto',
     execute: async (args, ctx) => {
       const v = requireVideo(store, str(args, 'video_id'));
@@ -130,6 +132,7 @@ export function createVideoTools({ store, ops }: VideoToolDeps): RegisteredTool[
       },
     },
     source: { kind: 'builtin' },
+    category: 'video',
     defaultPolicy: 'auto',
     execute: async (args, ctx) => {
       const v = requireVideo(store, str(args, 'video_id'));
@@ -192,6 +195,7 @@ export function createVideoTools({ store, ops }: VideoToolDeps): RegisteredTool[
       },
     },
     source: { kind: 'builtin' },
+    category: 'video',
     defaultPolicy: 'auto',
     execute: async (args, ctx) => {
       const v = requireVideo(store, str(args, 'video_id'));
@@ -260,6 +264,7 @@ export function createVideoTools({ store, ops }: VideoToolDeps): RegisteredTool[
       },
     },
     source: { kind: 'builtin' },
+    category: 'video',
     defaultPolicy: 'auto',
     requires: { video: 'native' },
     execute: async (args, ctx) => {

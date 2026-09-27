@@ -272,9 +272,11 @@ export function ChatPane({ conversationId }: { conversationId: string }) {
           </div>
         )}
         <Composer
+          conversation={c}
           disabled={!canSend}
           running={!!runningRunId}
           nativeVideo={caps.data?.video === 'native'}
+          toolsSupported={caps.data?.tools ?? true}
           pending={pending}
           setPending={setPending}
           onSend={(t, refs) => void send(t, refs)}

@@ -219,6 +219,8 @@ export class McpManager {
           },
         },
         source: { kind: 'mcp', serverId: conn.server.id },
+        category: `mcp:${conn.server.id}`,
+        categoryLabel: conn.server.name,
         defaultPolicy: 'ask',
         execute: async (args, ctx) => this.call(conn, t.name, args, ctx.signal),
       };

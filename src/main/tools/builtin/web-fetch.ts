@@ -151,6 +151,7 @@ export const webFetchTool: RegisteredTool = {
     },
   },
   source: { kind: 'builtin' },
+  category: 'web',
   defaultPolicy: 'auto',
   execute: async (args, ctx: ToolContext) => {
     const url = str(args, 'url');

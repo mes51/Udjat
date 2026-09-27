@@ -1,14 +1,18 @@
 import { Loader2, Paperclip, SendHorizontal, Square } from 'lucide-react';
 import { useEffect, useRef, useState, type ClipboardEvent, type KeyboardEvent } from 'react';
-import type { AttachmentRef } from '@shared/schemas';
+import type { AttachmentRef, Conversation } from '@shared/schemas';
 import { Button } from '@renderer/components/ui/button';
 import { addFile } from '@renderer/lib/attachments';
 import { AttachmentChips, toRefs, type PendingAttachment } from './AttachmentChips';
+import { ToolCategoryBar } from './ToolCategoryBar';
 
 export interface ComposerProps {
+  conversation: Conversation;
   disabled: boolean;
   running: boolean;
   nativeVideo: boolean;
+  /** 選択中モデルがツール呼び出しに対応しているか(不明なら true) */
+  toolsSupported: boolean;
   pending: PendingAttachment[];
   setPending: (updater: (prev: PendingAttachment[]) => PendingAttachment[]) => void;
   onSend: (text: string, attachments: AttachmentRef[]) => void;
@@ -16,9 +20,11 @@ export interface ComposerProps {
 }
 
 export function Composer({
+  conversation,
   disabled,
   running,
   nativeVideo,
+  toolsSupported,
   pending,
   setPending,
   onSend,
@@ -104,6 +110,9 @@ export function Composer({
           }
         />
         {error && <div className="px-1 pb-1 text-xs text-red-400">{error}</div>}
+        {!disabled && (
+          <ToolCategoryBar conversation={conversation} toolsSupported={toolsSupported} />
+        )}
         <div className="border-border bg-surface-2 focus-within:ring-accent/50 flex items-end gap-2 rounded-lg border p-2 focus-within:ring-2">
           <input
             ref={fileInput}

@@ -115,4 +115,13 @@ export const migrations: readonly Migration[] = [
       ALTER TABLE server_profiles ADD COLUMN model_capability_overrides TEXT NOT NULL DEFAULT '{}';
     `,
   },
+  {
+    // M7: ツールはカテゴリ + 個別の除外リストで管理する(enabled_tools 許可リストは廃止・無視)
+    version: 3,
+    name: 'tool-categories',
+    up: `
+      ALTER TABLE conversations ADD COLUMN disabled_categories TEXT NOT NULL DEFAULT '[]';
+      ALTER TABLE conversations ADD COLUMN disabled_tools TEXT NOT NULL DEFAULT '[]';
+    `,
+  },
 ];

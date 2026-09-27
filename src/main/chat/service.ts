@@ -420,7 +420,10 @@ export class ChatService {
       if (!model) throw new Error('モデルが選択されていません');
       const capabilities = await this.capabilitiesFor(profile, model);
       const toolDefs = capabilities.tools
-        ? tools.definitionsFor(capabilities, conv.enabledTools)
+        ? tools.definitionsFor(capabilities, {
+            disabledCategories: conv.disabledCategories,
+            disabledTools: conv.disabledTools,
+          })
         : [];
 
       for (let iteration = 0; ; iteration++) {

@@ -17,6 +17,7 @@ function tool(name: string, extra: Partial<RegisteredTool> = {}): RegisteredTool
   return {
     definition: { name, description: name, parameters: { type: 'object', properties: {} } },
     source: { kind: 'builtin' },
+    category: 'basic',
     defaultPolicy: 'auto',
     execute: async (args) => ok(JSON.stringify(args)),
     ...extra,
@@ -29,24 +30,33 @@ describe('ToolRegistry', () => {
     const r = new ToolRegistry(db);
     r.register(tool('a'));
     r.register(tool('b', { defaultPolicy: 'ask' }));
-    r.register(tool('video_clip', { requires: { video: 'native' } }));
+    r.register(tool('video_clip', { requires: { video: 'native' }, category: 'video' }));
 
     expect(r.policyFor('b')).toBe('ask');
     r.setPolicy('b', 'deny');
     expect(r.policyFor('b')).toBe('deny');
     r.setPolicy('b', null);
     expect(r.policyFor('b')).toBe('ask');
+    expect(r.list().map((t) => [t.category, t.categoryLabel])).toEqual([
+      ['basic', '基本'],
+      ['basic', '基本'],
+      ['video', '動画'],
+    ]);
 
     const caps = guessFromModelName('ollama', 'qwen3:8b');
-    expect(r.definitionsFor(caps, null).map((d) => d.name)).toEqual(['a', 'b']);
-    expect(r.definitionsFor({ ...caps, video: 'native' }, null).map((d) => d.name)).toEqual([
-      'a',
-      'b',
-      'video_clip',
-    ]);
-    expect(r.definitionsFor(caps, ['b']).map((d) => d.name)).toEqual(['b']);
+    expect(r.definitionsFor(caps).map((d) => d.name)).toEqual(['a', 'b']);
+    const native = { ...caps, video: 'native' as const };
+    expect(r.definitionsFor(native).map((d) => d.name)).toEqual(['a', 'b', 'video_clip']);
+    expect(
+      r.definitionsFor(caps, { disabledCategories: [], disabledTools: ['a'] }).map((d) => d.name),
+    ).toEqual(['b']);
+    expect(
+      r
+        .definitionsFor(native, { disabledCategories: ['video'], disabledTools: [] })
+        .map((d) => d.name),
+    ).toEqual(['a', 'b']);
     r.setPolicy('a', 'deny');
-    expect(r.definitionsFor(caps, null).map((d) => d.name)).toEqual(['b']);
+    expect(r.definitionsFor(caps).map((d) => d.name)).toEqual(['b']);
     db.close();
   });
 

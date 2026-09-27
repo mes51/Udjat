@@ -10,10 +10,20 @@ interface Row {
   model: string | null;
   system_prompt: string | null;
   params: string;
-  enabled_tools: string | null;
+  disabled_categories: string;
+  disabled_tools: string;
   active_leaf_id: string | null;
   created_at: number;
   updated_at: number;
+}
+
+function parseList(json: string): string[] {
+  try {
+    const v = JSON.parse(json) as unknown;
+    return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [];
+  } catch {
+    return [];
+  }
 }
 
 function fromRow(r: Row): Conversation {
@@ -25,7 +35,8 @@ function fromRow(r: Row): Conversation {
     model: r.model,
     systemPrompt: r.system_prompt,
     params: JSON.parse(r.params) as Conversation['params'],
-    enabledTools: r.enabled_tools ? (JSON.parse(r.enabled_tools) as string[]) : null,
+    disabledCategories: parseList(r.disabled_categories),
+    disabledTools: parseList(r.disabled_tools),
     activeLeafId: r.active_leaf_id,
     createdAt: r.created_at,
     updatedAt: r.updated_at,
@@ -38,6 +49,8 @@ export interface ConversationCreate {
   systemPrompt?: string | null;
   params?: Conversation['params'];
   title?: string;
+  /** 新規会話で最初から無効にしておくカテゴリ(直前の会話の状態を引き継ぐ用) */
+  disabledCategories?: string[];
 }
 
 export class ConversationRepository {
@@ -63,8 +76,8 @@ export class ConversationRepository {
     this.db
       .prepare(
         `INSERT INTO conversations
-           (id, title, pinned, server_profile_id, model, system_prompt, params, enabled_tools, active_leaf_id, created_at, updated_at)
-         VALUES (?, ?, 0, ?, ?, ?, ?, NULL, NULL, ?, ?)`,
+           (id, title, pinned, server_profile_id, model, system_prompt, params, disabled_categories, disabled_tools, active_leaf_id, created_at, updated_at)
+         VALUES (?, ?, 0, ?, ?, ?, ?, ?, '[]', NULL, ?, ?)`,
       )
       .run(
         id,
@@ -73,6 +86,7 @@ export class ConversationRepository {
         input.model,
         input.systemPrompt ?? null,
         JSON.stringify(input.params ?? {}),
+        JSON.stringify(input.disabledCategories ?? []),
         now,
         now,
       );
@@ -90,7 +104,7 @@ export class ConversationRepository {
     this.db
       .prepare(
         `UPDATE conversations SET title = ?, pinned = ?, server_profile_id = ?, model = ?, system_prompt = ?,
-           params = ?, enabled_tools = ?, active_leaf_id = ?, updated_at = ? WHERE id = ?`,
+           params = ?, disabled_categories = ?, disabled_tools = ?, active_leaf_id = ?, updated_at = ? WHERE id = ?`,
       )
       .run(
         next.title,
@@ -99,7 +113,8 @@ export class ConversationRepository {
         next.model,
         next.systemPrompt,
         JSON.stringify(next.params),
-        next.enabledTools ? JSON.stringify(next.enabledTools) : null,
+        JSON.stringify(next.disabledCategories),
+        JSON.stringify(next.disabledTools),
         next.activeLeafId,
         opts.touch === false ? cur.updatedAt : Date.now(),
         id,

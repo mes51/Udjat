@@ -32,6 +32,10 @@ export type ToolSource = { kind: 'builtin' } | { kind: 'mcp'; serverId: string }
 export interface RegisteredTool {
   definition: ToolDefinition;
   source: ToolSource;
+  /** カテゴリ id(組み込み: basic / web / video / pdf / code、MCP: "mcp:<serverId>") */
+  category: string;
+  /** カテゴリの表示名(組み込みは省略可、MCP はサーバー名) */
+  categoryLabel?: string;
   /** 既定の承認ポリシー(tool_policies テーブルで上書き可) */
   defaultPolicy: ToolPolicy;
   /** この capability を満たさない時は提供しない */

@@ -170,8 +170,27 @@ export const ToolInfoSchema = z.object({
   description: z.string(),
   source: z.enum(['builtin', 'mcp']),
   policy: ToolPolicySchema,
+  /** 組み込みは basic / web / video / pdf / code、MCP は "mcp:<serverId>" */
+  category: z.string(),
+  categoryLabel: z.string(),
 });
 export type ToolInfo = z.infer<typeof ToolInfoSchema>;
+
+/** 組み込みツールのカテゴリ(表示順) */
+export const BUILTIN_TOOL_CATEGORIES = ['basic', 'web', 'video', 'pdf', 'code'] as const;
+export const TOOL_CATEGORY_LABELS: Record<(typeof BUILTIN_TOOL_CATEGORIES)[number], string> = {
+  basic: '基本',
+  web: 'Web',
+  video: '動画',
+  pdf: 'PDF',
+  code: 'コード',
+};
+
+/** 会話ごとのツール有効設定(除外リスト方式。空なら全部有効) */
+export interface ToolFilter {
+  disabledCategories: string[];
+  disabledTools: string[];
+}
 
 /** tool メッセージの tool_meta に入れる実行記録 */
 export const ToolMetaSchema = z.object({
@@ -262,7 +281,10 @@ export const ConversationSchema = z.object({
   model: z.string().nullable(),
   systemPrompt: z.string().nullable(),
   params: ChatParamsSchema,
-  enabledTools: z.array(z.string()).nullable(),
+  /** 無効にしたツールカテゴリ(basic / web / … / mcp:<serverId>) */
+  disabledCategories: z.array(z.string()),
+  /** 無効にした個別ツール名 */
+  disabledTools: z.array(z.string()),
   activeLeafId: z.string().nullable(),
   createdAt: z.number(),
   updatedAt: z.number(),
@@ -276,7 +298,8 @@ export const ConversationPatchSchema = ConversationSchema.pick({
   model: true,
   systemPrompt: true,
   params: true,
-  enabledTools: true,
+  disabledCategories: true,
+  disabledTools: true,
   activeLeafId: true,
 }).partial();
 export type ConversationPatch = z.infer<typeof ConversationPatchSchema>;

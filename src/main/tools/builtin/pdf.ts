@@ -60,6 +60,7 @@ export function createPdfTools({ store, pdf }: PdfToolDeps): RegisteredTool[] {
       },
     },
     source: { kind: 'builtin' },
+    category: 'pdf',
     defaultPolicy: 'auto',
     execute: async (args) => {
       const a = requirePdf(store, str(args, 'pdf_id'));
@@ -100,6 +101,7 @@ export function createPdfTools({ store, pdf }: PdfToolDeps): RegisteredTool[] {
       },
     },
     source: { kind: 'builtin' },
+    category: 'pdf',
     defaultPolicy: 'auto',
     requires: { image: true },
     execute: async (args) => {

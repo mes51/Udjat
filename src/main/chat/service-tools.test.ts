@@ -33,6 +33,7 @@ beforeEach(() => {
       parameters: { type: 'object', properties: { city: { type: 'string' } }, required: ['city'] },
     },
     source: { kind: 'builtin' },
+    category: 'basic',
     defaultPolicy: 'auto',
     execute: async (args) => {
       executed.push({ name: 'get_weather', args });
