@@ -175,6 +175,15 @@ function parseCodeArgs(args: string): {
         { label: '読み取り', items: list('allow_read') as string[] },
         { label: '書き込み', items: list('allow_write') as string[] },
         { label: 'ネットワーク', items: list('allow_net') as string[] },
+        {
+          label: 'ダウンロード',
+          items:
+            typeof a['allow_download'] === 'number' && a['allow_download'] > 0
+              ? [
+                  `最大 ${(a['allow_download'] / (1024 * 1024)).toFixed(a['allow_download'] % (1024 * 1024) === 0 ? 0 : 1)} MB`,
+                ]
+              : [],
+        },
       ].filter((p) => p.items.length > 0),
     };
   } catch {

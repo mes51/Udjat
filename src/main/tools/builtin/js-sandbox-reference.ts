@@ -6,7 +6,7 @@
 
 export const SANDBOX_SUMMARY =
   '実行環境は QuickJS(ES2023)であり Node.js でもブラウザでもない。require / import / process / fs / path / Buffer / npm パッケージ / DOM は使えない。' +
-  'ファイルは udjat.readFile / udjat.writeFile / udjat.readDir、HTTP は fetch(Response 風: status / ok / headers.get() / text() / json())、待機は udjat.sleep(ms) / setTimeout、' +
+  'ファイルは udjat.readFile / udjat.writeFile / udjat.readDir、HTTP は fetch(Response 風: status / ok / headers.get() / text() / json() / bytes())、バイナリの取り込みは udjat.download(url)、待機は udjat.sleep(ms) / setTimeout、' +
   '他のツールは udjat.callTool(name, args)。詳細は js_sandbox_reference ツールで参照できる。';
 
 export const SANDBOX_REFERENCE = `# run_javascript サンドボックス リファレンス
@@ -36,6 +36,14 @@ export const SANDBOX_REFERENCE = `# run_javascript サンドボックス リフ�
   - \`body\` にオブジェクトを渡すと JSON 文字列にして \`content-type: application/json\` を付ける
   - 応答本文は 2MB まで(\`res.truncated\` が true なら打ち切られている)。バイナリの取得には向かない
 - \`await udjat.fetch(url, init)\` → \`{ status, headers, text, truncated }\`(低レベル版)
+
+### バイナリのダウンロード(allow_net に host を宣言したものだけ)
+
+- \`const info = await udjat.download(url, { name?, maxBytes?, saveTo? })\` → \`{ attachment_id, name, mime, size, kind, image_id? / video_id? / pdf_id?, saved_to? }\`
+  - 会話の添付として取り込む。**画像はこの呼び出しの結果と一緒にモデルに渡される**(生成結果の確認に使う)
+  - 宣言しなければ 5MB まで。大きいファイルは \`allow_download\` に最大バイト数を宣言する(承認が必要)
+  - \`saveTo\`(絶対パス)を付けるとフォルダにも保存する(\`allow_write\` の配下のみ)
+- 小さいバイナリは \`fetch\` でも受け取れる: \`await res.bytes()\` → \`Uint8Array\`、\`await res.arrayBuffer()\`(2MB まで)
 
 ### 待機・ポーリング(推論を挟まずに待てる)
 
@@ -84,7 +92,8 @@ throw new Error('timeout');
 | \`process.env.X\` / \`process.argv\`           | 使えない。必要な値は引数の code に埋め込む                  |
 | \`await new Promise(r => setTimeout(r, ms))\` | そのままでも動くが \`await udjat.sleep(ms)\` が簡潔            |
 | \`new URL(u).searchParams\`                  | 使えない。文字列で組み立てる                               |
-| \`res.body.getReader()\` / ストリーム         | 使えない。\`await res.text()\` / \`await res.json()\`         |
+| \`res.body.getReader()\` / ストリーム         | 使えない。\`await res.text()\` / \`await res.json()\` / \`await res.bytes()\` |
+| 画像を fetch して base64 で返す                | \`await udjat.download(url)\`(モデルに画像として届く)          |
 | \`XMLHttpRequest\` / \`axios\`                 | \`fetch\`                                                  |
 | \`console.log\` の結果が返らない              | 最後に \`return 値\` する(console 出力も stdout として返る)   |
 `;

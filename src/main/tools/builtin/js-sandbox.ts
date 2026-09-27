@@ -19,7 +19,19 @@ export interface SandboxHost {
   fetch(
     url: string,
     init?: { method?: string; headers?: Record<string, string>; body?: string },
-  ): Promise<{ status: number; headers: Record<string, string>; text: string; truncated: boolean }>;
+  ): Promise<{
+    status: number;
+    headers: Record<string, string>;
+    text: string;
+    truncated: boolean;
+    /** バイナリ応答(画像など)の時は base64 で返す(text は空) */
+    base64?: string;
+  }>;
+  /** URL を添付ストアに取り込む(M18)。画像はツール結果の media になる */
+  download?(
+    url: string,
+    opts: { maxBytes?: number; name?: string; saveTo?: string },
+  ): Promise<Record<string, unknown>>;
   listAttachments(): Promise<
     { id: string; name: string; mime: string; size: number; kind: string }[]
   >;
@@ -119,6 +131,7 @@ const PRELUDE = String.raw`
     readAttachment: readAs('readAttachment', 'id'),
     base64: Object.freeze({ encode: b64encode, decode: b64decode }),
     sleep: (ms) => call('sleep', { ms: Math.max(0, Number(ms) || 0) }),
+    download: (url, opts) => call('download', { url: String(url), opts: opts && typeof opts === 'object' ? opts : {} }),
     callTool: (name, args) => call('callTool', { name: String(name), args: args && typeof args === 'object' ? args : {} }).then((r) => {
       if (r.isError) throw new Error(r.text);
       try { return JSON.parse(r.text); } catch { return r.text; }
@@ -207,8 +220,10 @@ const PRELUDE = String.raw`
         has: (k) => String(k).toLowerCase() in h,
         entries: () => Object.entries(h),
       }),
-      text: () => Promise.resolve(r.text),
-      json: () => Promise.resolve().then(() => JSON.parse(r.text)),
+      text: () => Promise.resolve(r.base64 ? utf8decode(b64decode(r.base64)) : r.text),
+      json: () => Promise.resolve().then(() => JSON.parse(r.base64 ? utf8decode(b64decode(r.base64)) : r.text)),
+      bytes: () => Promise.resolve(r.base64 ? b64decode(r.base64) : utf8encode(r.text)),
+      arrayBuffer: () => Promise.resolve((r.base64 ? b64decode(r.base64) : utf8encode(r.text)).buffer),
     });
   };
   globalThis.fetch = (url, init) => udjat.fetch(String(url), init).then((r) => toResponse(String(url), r));
@@ -418,6 +433,15 @@ async function dispatch(host: SandboxHost, name: string, rawArgs: string): Promi
       }
       await new Promise((r) => setTimeout(r, ms));
       return null;
+    }
+    case 'download': {
+      if (!host.download) throw new Error('download is not available here');
+      const o = (args['opts'] ?? {}) as { maxBytes?: unknown; name?: unknown; saveTo?: unknown };
+      return host.download(s('url'), {
+        ...(typeof o.maxBytes === 'number' ? { maxBytes: o.maxBytes } : {}),
+        ...(typeof o.name === 'string' ? { name: o.name } : {}),
+        ...(typeof o.saveTo === 'string' ? { saveTo: o.saveTo } : {}),
+      });
     }
     case 'callTool': {
       if (!host.callTool) throw new Error('callTool is not available here');

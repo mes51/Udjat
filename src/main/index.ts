@@ -14,6 +14,7 @@ import { createPdfTools } from './tools/builtin/pdf';
 import { createCodeTools } from './tools/builtin/code';
 import { createFileTools } from './tools/builtin/files';
 import { createAttachmentTextTool } from './tools/builtin/attachment-text';
+import { createDownloadTools } from './tools/builtin/download';
 import { MediaStore } from './media/store';
 import { VideoOps } from './media/video-ops';
 import { createVideoTools } from './tools/builtin/video';
@@ -144,6 +145,7 @@ if (!app.requestSingleInstanceLock()) {
     for (const t of createFileTools({ store: media, pdf, getSetting: (k) => settings.get(k) }))
       tools.register(t);
     tools.register(createAttachmentTextTool(media));
+    for (const t of createDownloadTools({ store: media })) tools.register(t);
     // 未参照の添付と孤立ファイルの掃除(起動を遅らせないよう少し後で)
     setTimeout(() => {
       try {

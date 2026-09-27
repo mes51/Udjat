@@ -1,10 +1,11 @@
 import { promises as fs } from 'node:fs';
-import { isAbsolute, resolve, sep } from 'node:path';
+import { dirname, isAbsolute, resolve, sep } from 'node:path';
 import type { MediaStore } from '@main/media/store';
-import type { RegisteredTool, ToolContext } from '../types';
+import type { RegisteredTool, ToolContext, ToolMedia } from '../types';
 import { fail, num, ok, str } from '../types';
 import { runJavaScript, type SandboxHost } from './js-sandbox';
 import { referenceHint, SANDBOX_REFERENCE, SANDBOX_SUMMARY } from './js-sandbox-reference';
+import { describeDownloaded, downloadToStore, MAX_DOWNLOAD_BYTES } from './download';
 
 /**
  * run_javascript: QuickJS(WASM)サンドボックスでコードを実行する(M11)。
@@ -29,6 +30,10 @@ const BG_DEFAULT_TIMEOUT_MS = 60 * 60_000;
 const BG_MAX_TIMEOUT_MS = 6 * 60 * 60_000;
 const MAX_FETCH_BYTES = 2 * 1024 * 1024;
 const MAX_FILE_BYTES = 8 * 1024 * 1024;
+/** allow_download を宣言しない時に udjat.download で受け取れる上限 */
+const DEFAULT_DOWNLOAD_BYTES = 5 * 1024 * 1024;
+const TEXTUAL_MIME =
+  /^(text\/|application\/(json|xml|javascript|x-yaml|yaml|toml|x-www-form-urlencoded))/;
 
 function strList(args: Record<string, unknown>, key: string): string[] {
   const v = args[key];
@@ -86,6 +91,7 @@ export function createCodeTools({ store, callTool }: CodeToolDeps): RegisteredTo
         'JavaScript をサンドボックスで実行し、console 出力と返り値を返す。計算、データ整形、文字列処理、添付ファイルの解析、API のポーリングに使う。' +
         SANDBOX_SUMMARY +
         ' ファイルやネットワークに触るには allow_read / allow_write / allow_net を宣言する(宣言外は permission denied)。' +
+        ' バイナリ(生成画像など)は udjat.download(url) で添付に取り込む(画像はそのままモデルに見える)。5MB を超えるダウンロードは allow_download にバイト数を宣言する。' +
         'いずれの API も Promise を返すので await する。トップレベル await 可。結果は return で返す(console 出力も返る)。' +
         '数十秒を超える処理(ポーリング等)は background: true を付けると、バックグラウンドタスクになり完了後に応答が再開される。',
       parameters: {
@@ -106,6 +112,12 @@ export function createCodeTools({ store, callTool }: CodeToolDeps): RegisteredTo
             type: 'array',
             items: { type: 'string' },
             description: '許可するホスト(example.com / *.example.com / host:port)',
+          },
+          allow_download: {
+            type: 'integer',
+            description: `udjat.download で受け取る最大バイト数。宣言しなければ ${DEFAULT_DOWNLOAD_BYTES} まで。大きいファイルはここに宣言する(承認が必要)`,
+            minimum: 1,
+            maximum: MAX_DOWNLOAD_BYTES,
           },
           timeout_ms: {
             type: 'integer',
@@ -130,7 +142,8 @@ export function createCodeTools({ store, callTool }: CodeToolDeps): RegisteredTo
     requiresApproval: (args) =>
       strList(args, 'allow_read').length > 0 ||
       strList(args, 'allow_write').length > 0 ||
-      strList(args, 'allow_net').length > 0,
+      strList(args, 'allow_net').length > 0 ||
+      (typeof args['allow_download'] === 'number' && args['allow_download'] > 0),
     // background: true はすぐにバックグラウンドタスクへ切り離す(M16)
     background: (args) => args['background'] === true,
     execute: async (args, ctx) => {
@@ -142,6 +155,12 @@ export function createCodeTools({ store, callTool }: CodeToolDeps): RegisteredTo
         if (!isAbsolute(p))
           return fail(`allow_read / allow_write は絶対パスで指定してください: ${p}`);
       }
+      const allowDownload =
+        typeof args['allow_download'] === 'number' && args['allow_download'] > 0
+          ? Math.min(Math.floor(args['allow_download']), MAX_DOWNLOAD_BYTES)
+          : DEFAULT_DOWNLOAD_BYTES;
+      /** この実行でダウンロードした画像(ツール結果の media として見せる) */
+      const downloadedMedia: ToolMedia[] = [];
       const background = args['background'] === true;
       const timeoutMs = background
         ? num(args, 'timeout_ms', BG_DEFAULT_TIMEOUT_MS, 1000, BG_MAX_TIMEOUT_MS)
@@ -210,11 +229,15 @@ export function createCodeTools({ store, callTool }: CodeToolDeps): RegisteredTo
             const headers: Record<string, string> = {};
             res.headers.forEach((v, k) => (headers[k] = v));
             const truncated = buf.length > MAX_FETCH_BYTES;
+            const ctype = (headers['content-type'] ?? '').split(';')[0]!.trim().toLowerCase();
+            const binary = ctype !== '' && !TEXTUAL_MIME.test(ctype);
+            const body = buf.subarray(0, MAX_FETCH_BYTES);
             return {
               status: res.status,
               headers,
-              text: buf.subarray(0, MAX_FETCH_BYTES).toString('utf8'),
+              text: binary ? '' : body.toString('utf8'),
               truncated,
+              ...(binary ? { base64: body.toString('base64') } : {}),
             };
           } finally {
             clearTimeout(timer);
@@ -237,6 +260,51 @@ export function createCodeTools({ store, callTool }: CodeToolDeps): RegisteredTo
             throw new Error(`attachment too large (${a.size} bytes, max ${MAX_FILE_BYTES})`);
           const buf = await fs.readFile(store.pathOf(a));
           return encoding === 'base64' ? buf.toString('base64') : buf.toString('utf8');
+        },
+        async download(url, opts) {
+          let u: URL;
+          try {
+            u = new URL(url);
+          } catch {
+            throw new Error(`invalid url: ${url}`);
+          }
+          if (!hostAllowed(u, allowNet))
+            permissionError(
+              `download ${u.host}`,
+              'allow_net にこのホストを宣言して再実行してください',
+            );
+          const maxBytes = Math.min(opts.maxBytes ?? allowDownload, allowDownload);
+          if (opts.saveTo !== undefined && !pathAllowed(opts.saveTo, allowWrite))
+            permissionError(
+              `write ${opts.saveTo}`,
+              'saveTo に書くには allow_write にそのパス(または親ディレクトリ)を宣言してください',
+            );
+          let d;
+          try {
+            d = await downloadToStore(store, u.href, {
+              maxBytes,
+              signal: ctx.signal,
+              skipGuard: true,
+              ...(opts.name ? { name: opts.name } : {}),
+            });
+          } catch (e) {
+            const msg = (e as Error).message;
+            throw new Error(
+              /サイズ上限/.test(msg) && maxBytes >= allowDownload
+                ? `${msg}。より大きいファイルは allow_download にバイト数を宣言して再実行してください`
+                : msg,
+            );
+          }
+          if (opts.saveTo !== undefined) {
+            await fs.mkdir(dirname(opts.saveTo), { recursive: true });
+            await fs.copyFile(store.pathOf(d.attachment), opts.saveTo);
+          }
+          const { body, media } = describeDownloaded(
+            d,
+            opts.saveTo !== undefined ? { saved_to: opts.saveTo } : {},
+          );
+          if (downloadedMedia.length < 8) downloadedMedia.push(...media);
+          return body;
         },
         sleep(ms) {
           return new Promise<void>((resolve) => {
@@ -271,8 +339,10 @@ export function createCodeTools({ store, callTool }: CodeToolDeps): RegisteredTo
         payload['error'] = hint ? `${r.error}\nヒント: ${hint}` : r.error;
       }
       if (r.truncated) payload['truncated'] = '出力が上限で打ち切られました';
+      if (downloadedMedia.length > 0)
+        payload['downloaded_images'] = `${downloadedMedia.length} 枚の画像をモデルに渡します`;
       const text = JSON.stringify(payload);
-      return r.ok ? ok(text) : { text, isError: true };
+      return r.ok ? ok(text, downloadedMedia) : { text, isError: true, media: downloadedMedia };
     },
   };
 
