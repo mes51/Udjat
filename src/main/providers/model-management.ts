@@ -47,7 +47,7 @@ export interface UnslothVariant {
 
 /** 量子化名らしい文字列か(Q4_K_M, IQ2_XS, UD-Q4_K_XL, BF16, F16, MXFP4 など)。Ollama タグ等の誤分解を避ける */
 export function looksLikeQuant(s: string): boolean {
-  return /^(ud-)?(i?qd|f16|f32|bf16|mxfpd|tqd)[a-z0-9_.-]*$/i.test(s);
+  return /^(ud-)?(i?q\d|f16|f32|bf16|mxfp\d|tq\d)[a-z0-9_.-]*$/i.test(s);
 }
 
 /** "repo:QUANT" を分解する。rows に repo があるか、末尾が量子化名らしい時だけ分ける */
