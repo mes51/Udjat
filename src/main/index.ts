@@ -123,7 +123,24 @@ if (!app.requestSingleInstanceLock()) {
     registerBuiltinTools(tools);
     for (const t of createVideoTools({ store: media, ops })) tools.register(t);
     for (const t of createPdfTools({ store: media, pdf })) tools.register(t);
-    for (const t of createCodeTools({ store: media })) tools.register(t);
+    for (const t of createCodeTools({
+      store: media,
+      // udjat.callTool: 承認なしで実行できる(ポリシー auto の)ツールだけをサンドボックスから呼べる
+      callTool: async (name, args, ctx) => {
+        const t = tools.get(name);
+        if (!t) return { text: `error: unknown tool ${name}`, isError: true };
+        if (tools.policyFor(name) !== 'auto')
+          return {
+            text: `error: ${name} は承認が必要なツールなのでサンドボックスからは呼べません。ツールとして直接呼んでください`,
+            isError: true,
+          };
+        const reason = t.unavailable?.();
+        if (reason) return { text: `error: ${reason}`, isError: true };
+        const r = await tools.execute(name, args, ctx);
+        return { text: r.text, isError: r.isError ?? false };
+      },
+    }))
+      tools.register(t);
     for (const t of createFileTools({ store: media, pdf, getSetting: (k) => settings.get(k) }))
       tools.register(t);
     tools.register(createAttachmentTextTool(media));

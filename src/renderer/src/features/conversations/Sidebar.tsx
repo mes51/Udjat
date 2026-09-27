@@ -8,6 +8,7 @@ import { invoke } from '@renderer/lib/ipc';
 import {
   invalidateConversationView,
   keys,
+  useBackgroundTasks,
   useConversationMutations,
   useConversations,
   useProfiles,
@@ -71,6 +72,9 @@ export function Sidebar() {
   const select = useUiStore((s) => s.select);
   const openProfiles = useUiStore((s) => s.setProfilesDialogOpen);
   const running = useStreamStore((s) => s.running);
+  // バックグラウンドタスクを待っている会話にも印を出す(M16)
+  const bgTasks = useBackgroundTasks();
+  const waiting = new Set((bgTasks.data ?? []).map((t) => t.conversationId));
   const [query, setQuery] = useState('');
   const searchRef = useRef<HTMLInputElement>(null);
   const focusRequest = useUiStore((s) => s.searchFocusRequest);
@@ -156,8 +160,13 @@ export function Sidebar() {
                 <div className="flex items-center gap-1 truncate">
                   {c.pinned && <Pin size={11} className="text-fg-muted shrink-0" />}
                   <span className="truncate">{c.title || '(無題)'}</span>
-                  {running[c.id] && (
-                    <span className="bg-accent ml-1 inline-block h-1.5 w-1.5 shrink-0 animate-pulse rounded-full" />
+                  {(running[c.id] || waiting.has(c.id)) && (
+                    <span
+                      className="bg-accent ml-1 inline-block h-1.5 w-1.5 shrink-0 animate-pulse rounded-full"
+                      title={
+                        waiting.has(c.id) ? 'バックグラウンドタスクを待っています' : '応答を生成中'
+                      }
+                    />
                   )}
                 </div>
                 <div className="text-fg-subtle text-[11px]">{formatRelativeTime(c.updatedAt)}</div>

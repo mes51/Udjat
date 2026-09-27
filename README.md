@@ -4,7 +4,7 @@ LAN 上のローカル LLM サーバー(Ollama / LM Studio / llama.cpp / vLLM)�
 動画を添付し、LLM 自身がツール呼び出しでフレームを取り出して理解できることを中核機能とする。
 
 - 形態: Electron + React + TypeScript
-- 状態: M0〜M6(v1)と運用フィードバック第 1 弾(M7〜M11、[docs/plan/07-feedback-round-1.md](docs/plan/07-feedback-round-1.md))を実装済み。第 2 弾としてファイルアクセスツール(M12、[docs/plan/08-file-tools.md](docs/plan/08-file-tools.md))、添付テキストの展開とコンテキスト量表示・コンパクション(M13〜M14、[docs/plan/09-context-and-compaction.md](docs/plan/09-context-and-compaction.md))を追加
+- 状態: M0〜M6(v1)と運用フィードバック第 1 弾(M7〜M11、[docs/plan/07-feedback-round-1.md](docs/plan/07-feedback-round-1.md))を実装済み。第 2 弾としてファイルアクセスツール(M12、[docs/plan/08-file-tools.md](docs/plan/08-file-tools.md))、添付テキストの展開とコンテキスト量表示・コンパクション(M13〜M14、[docs/plan/09-context-and-compaction.md](docs/plan/09-context-and-compaction.md))を追加、拒否理由・バックグラウンドタスク・サンドボックスの案内(M15〜M17、[docs/plan/10-approval-background-sandbox.md](docs/plan/10-approval-background-sandbox.md))を追加
 
 ## ドキュメント
 

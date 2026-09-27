@@ -50,6 +50,11 @@ export interface RegisteredTool {
    * UI では灰色表示にする(例: ファイルツールで許可フォルダが未設定)
    */
   unavailable?: () => string | null;
+  /**
+   * 引数を見て「最初からバックグラウンドタスクとして実行する」と判定する(M16)。
+   * 判定しなくても、実行が設定 tools.backgroundAfterMs を超えれば切り離される
+   */
+  background?: (args: Record<string, unknown>) => boolean;
   execute: (args: Record<string, unknown>, ctx: ToolContext) => Promise<ToolResult>;
 }
 

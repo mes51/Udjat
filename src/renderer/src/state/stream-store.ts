@@ -92,6 +92,10 @@ export const useStreamStore = create<StreamStore>((set) => ({
         delete modelLoading[ev.conversationId];
         return { running, modelLoading };
       }
+      if (e.type === 'tool-background') {
+        // タスクの開始・終了は run の状態に触れない(終了は run が終わった後に届く)
+        return {};
+      }
       if (e.type === 'compacting') {
         // 要約は run の外で走る(失敗しても run は始まらない)ので running には触れない
         const compacting = { ...s.compacting };

@@ -12,6 +12,7 @@ import { useState } from 'react';
 import type { Message, ToolApprovalDecision, ToolCall, ToolMeta } from '@shared/schemas';
 import { Button } from '@renderer/components/ui/button';
 import { invoke } from '@renderer/lib/ipc';
+import { useAbortTaskMutation } from '@renderer/lib/queries';
 import { cn, formatDuration } from '@renderer/lib/utils';
 import { useStreamStore, type ToolActivity } from '@renderer/state/stream-store';
 
@@ -86,6 +87,9 @@ export function ToolResultCard({ message }: { message: Message }) {
     .map((p) => p.text)
     .join('\n');
   const isError = meta?.isError ?? text.startsWith('error:');
+  const bg = meta?.background;
+  const bgRunning = bg?.status === 'running';
+  const abortTask = useAbortTaskMutation();
   return (
     <div className="px-4 py-1 pl-14">
       <Collapsible.Root
@@ -94,21 +98,56 @@ export function ToolResultCard({ message }: { message: Message }) {
         className={cn(
           'border-border bg-surface-2 rounded-md border',
           isError && 'border-danger/30',
+          bgRunning && 'border-accent/40',
         )}
       >
         <Collapsible.Trigger className="text-fg-muted hover:text-fg flex w-full items-center gap-1.5 px-2.5 py-1.5 text-xs">
           <ChevronRight size={14} className={cn('transition-transform', open && 'rotate-90')} />
-          {isError ? (
+          {bgRunning ? (
+            <Loader2 size={13} className="text-accent animate-spin" />
+          ) : isError ? (
             <AlertTriangle size={13} className="text-danger" />
           ) : (
             <Check size={13} className="text-success" />
           )}
           <span className="font-mono">{meta?.name ?? 'tool'}</span>
           <span className="ml-1 opacity-70">
-            {meta?.approval === 'denied' ? '拒否' : isError ? 'エラー' : '結果'}
-            {meta ? ` · ${formatDuration(meta.durationMs)}` : ''}
-            {` · ${[...text].length} 文字`}
+            {bgRunning
+              ? 'バックグラウンドで実行中'
+              : meta?.approval === 'denied'
+                ? '拒否'
+                : isError
+                  ? 'エラー'
+                  : '結果'}
+            {bg && !bgRunning
+              ? ` · バックグラウンド${bg.status === 'aborted' ? '(中断)' : bg.status === 'lost' ? '(消失)' : ''}`
+              : ''}
+            {meta && !bgRunning ? ` · ${formatDuration(meta.durationMs)}` : ''}
+            {!bgRunning && ` · ${[...text].length} 文字`}
           </span>
+          {bgRunning && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="ml-auto"
+              disabled={abortTask.isPending}
+              onClick={(e) => {
+                e.stopPropagation();
+                if (message.toolCallId)
+                  abortTask.mutate({
+                    conversationId: message.conversationId,
+                    callId: message.toolCallId,
+                  });
+              }}
+            >
+              <X size={12} /> 中断
+            </Button>
+          )}
+          {meta?.denyReason && (
+            <span className="text-warning ml-1 min-w-0 truncate" title={meta.denyReason}>
+              理由: {meta.denyReason}
+            </span>
+          )}
         </Collapsible.Trigger>
         <Collapsible.Content>
           <pre className="text-fg-muted border-border max-h-80 overflow-auto border-t px-3 py-2 text-[11px] leading-relaxed whitespace-pre-wrap">
@@ -166,12 +205,18 @@ export function ApprovalCard({ callId }: { callId: string }) {
   const approval = useStreamStore((s) => s.approvals[callId]);
   const resolve = useStreamStore((s) => s.resolveApproval);
   const [busy, setBusy] = useState(false);
+  const [reason, setReason] = useState('');
   if (!approval) return null;
 
   const decide = async (decision: ToolApprovalDecision) => {
     setBusy(true);
     try {
-      await invoke('tools:approve', { runId: approval.runId, callId, decision });
+      await invoke('tools:approve', {
+        runId: approval.runId,
+        callId,
+        decision,
+        ...(decision === 'deny' && reason.trim() ? { reason: reason.trim() } : {}),
+      });
     } finally {
       resolve(callId);
       setBusy(false);
@@ -254,6 +299,20 @@ export function ApprovalCard({ callId }: { callId: string }) {
           <X size={13} /> 拒否
         </Button>
       </div>
+      <input
+        value={reason}
+        onChange={(e) => setReason(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
+            e.preventDefault();
+            void decide('deny');
+          }
+        }}
+        disabled={busy}
+        aria-label="拒否の理由"
+        placeholder="拒否の理由(任意。モデルに伝わり、応答は続きます。Enter で拒否)"
+        className="border-border bg-surface placeholder:text-fg-muted/70 mt-2 w-full rounded-md border px-2 py-1 text-xs focus:outline-none"
+      />
     </div>
   );
 }

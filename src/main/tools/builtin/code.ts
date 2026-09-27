@@ -1,9 +1,10 @@
 import { promises as fs } from 'node:fs';
 import { isAbsolute, resolve, sep } from 'node:path';
 import type { MediaStore } from '@main/media/store';
-import type { RegisteredTool } from '../types';
+import type { RegisteredTool, ToolContext } from '../types';
 import { fail, num, ok, str } from '../types';
 import { runJavaScript, type SandboxHost } from './js-sandbox';
+import { referenceHint, SANDBOX_REFERENCE, SANDBOX_SUMMARY } from './js-sandbox-reference';
 
 /**
  * run_javascript: QuickJS(WASM)サンドボックスでコードを実行する(M11)。
@@ -13,10 +14,19 @@ import { runJavaScript, type SandboxHost } from './js-sandbox';
 
 export interface CodeToolDeps {
   store: MediaStore;
+  /** サンドボックスから他のツールを呼ぶ(udjat.callTool)。ポリシー auto のものだけ通す(M16) */
+  callTool?: (
+    name: string,
+    args: Record<string, unknown>,
+    ctx: ToolContext,
+  ) => Promise<{ text: string; isError: boolean }>;
 }
 
 const MAX_TIMEOUT_MS = 300_000;
 const DEFAULT_TIMEOUT_MS = 30_000;
+/** background: true の時の制限時間(既定 1 時間、上限 6 時間) */
+const BG_DEFAULT_TIMEOUT_MS = 60 * 60_000;
+const BG_MAX_TIMEOUT_MS = 6 * 60 * 60_000;
 const MAX_FETCH_BYTES = 2 * 1024 * 1024;
 const MAX_FILE_BYTES = 8 * 1024 * 1024;
 
@@ -68,17 +78,16 @@ function permissionError(what: string, hint: string): never {
   throw new Error(`permission denied: ${what}. ${hint}`);
 }
 
-export function createCodeTools({ store }: CodeToolDeps): RegisteredTool[] {
+export function createCodeTools({ store, callTool }: CodeToolDeps): RegisteredTool[] {
   const runJs: RegisteredTool = {
     definition: {
       name: 'run_javascript',
       description:
-        'JavaScript(ES2023)をサンドボックスで実行し、console 出力と返り値を返す。計算、データ整形、文字列処理、添付ファイルの解析に使う。' +
-        'ファイルやネットワークに触るには allow_read / allow_write / allow_net を宣言する(宣言外はエラー)。' +
-        'サンドボックス内 API: udjat.readFile(path, encoding?) / udjat.writeFile(path, data) / udjat.readDir(path) / ' +
-        'fetch(url, {method, headers, body}) -> Response 風 {status, ok, headers.get(), text(), json()}(udjat.fetch は {status, headers, text} を返す) / ' +
-        'udjat.attachments() / udjat.readAttachment(id, encoding?)。' +
-        'いずれも Promise を返すので await する。トップレベル await 可。結果は console.log か return で返す。npm パッケージ・require・DOM は使えない。',
+        'JavaScript をサンドボックスで実行し、console 出力と返り値を返す。計算、データ整形、文字列処理、添付ファイルの解析、API のポーリングに使う。' +
+        SANDBOX_SUMMARY +
+        ' ファイルやネットワークに触るには allow_read / allow_write / allow_net を宣言する(宣言外は permission denied)。' +
+        'いずれの API も Promise を返すので await する。トップレベル await 可。結果は return で返す(console 出力も返る)。' +
+        '数十秒を超える処理(ポーリング等)は background: true を付けると、バックグラウンドタスクになり完了後に応答が再開される。',
       parameters: {
         type: 'object',
         properties: {
@@ -100,9 +109,14 @@ export function createCodeTools({ store }: CodeToolDeps): RegisteredTool[] {
           },
           timeout_ms: {
             type: 'integer',
-            description: `制限時間ミリ秒(既定 ${DEFAULT_TIMEOUT_MS}、上限 ${MAX_TIMEOUT_MS})`,
+            description: `制限時間ミリ秒(既定 ${DEFAULT_TIMEOUT_MS}、上限 ${MAX_TIMEOUT_MS}。background: true なら既定 ${BG_DEFAULT_TIMEOUT_MS}、上限 ${BG_MAX_TIMEOUT_MS})`,
             minimum: 1000,
-            maximum: MAX_TIMEOUT_MS,
+            maximum: BG_MAX_TIMEOUT_MS,
+          },
+          background: {
+            type: 'boolean',
+            description:
+              '長時間かかる処理(ジョブの完了待ちなど)なら true。バックグラウンドタスクとして実行し、完了後に応答を再開する',
           },
         },
         required: ['code'],
@@ -117,6 +131,8 @@ export function createCodeTools({ store }: CodeToolDeps): RegisteredTool[] {
       strList(args, 'allow_read').length > 0 ||
       strList(args, 'allow_write').length > 0 ||
       strList(args, 'allow_net').length > 0,
+    // background: true はすぐにバックグラウンドタスクへ切り離す(M16)
+    background: (args) => args['background'] === true,
     execute: async (args, ctx) => {
       const code = str(args, 'code');
       const allowRead = strList(args, 'allow_read');
@@ -126,7 +142,10 @@ export function createCodeTools({ store }: CodeToolDeps): RegisteredTool[] {
         if (!isAbsolute(p))
           return fail(`allow_read / allow_write は絶対パスで指定してください: ${p}`);
       }
-      const timeoutMs = num(args, 'timeout_ms', DEFAULT_TIMEOUT_MS, 1000, MAX_TIMEOUT_MS);
+      const background = args['background'] === true;
+      const timeoutMs = background
+        ? num(args, 'timeout_ms', BG_DEFAULT_TIMEOUT_MS, 1000, BG_MAX_TIMEOUT_MS)
+        : num(args, 'timeout_ms', DEFAULT_TIMEOUT_MS, 1000, MAX_TIMEOUT_MS);
 
       const host: SandboxHost = {
         async readFile(path, encoding) {
@@ -219,6 +238,23 @@ export function createCodeTools({ store }: CodeToolDeps): RegisteredTool[] {
           const buf = await fs.readFile(store.pathOf(a));
           return encoding === 'base64' ? buf.toString('base64') : buf.toString('utf8');
         },
+        sleep(ms) {
+          return new Promise<void>((resolve) => {
+            const t = setTimeout(done, Math.min(ms, timeoutMs));
+            function done() {
+              ctx.signal.removeEventListener('abort', done);
+              clearTimeout(t);
+              resolve();
+            }
+            ctx.signal.addEventListener('abort', done, { once: true });
+          });
+        },
+        async callTool(name, toolArgs) {
+          if (!callTool) throw new Error('udjat.callTool はこの構成では使えません');
+          if (name === 'run_javascript')
+            throw new Error('run_javascript を入れ子で呼ぶことはできません');
+          return callTool(name, toolArgs, ctx);
+        },
       };
 
       const r = await runJavaScript(code, { timeoutMs, host, signal: ctx.signal });
@@ -229,11 +265,29 @@ export function createCodeTools({ store }: CodeToolDeps): RegisteredTool[] {
         stderr: r.stderr,
         duration_ms: r.durationMs,
       };
-      if (r.error) payload['error'] = r.error;
+      if (r.error) {
+        // Node.js 前提の名前で失敗した時は、対応する書き方を添える(M17)
+        const hint = referenceHint(r.error);
+        payload['error'] = hint ? `${r.error}\nヒント: ${hint}` : r.error;
+      }
       if (r.truncated) payload['truncated'] = '出力が上限で打ち切られました';
       const text = JSON.stringify(payload);
       return r.ok ? ok(text) : { text, isError: true };
     },
   };
-  return [runJs];
+
+  const reference: RegisteredTool = {
+    definition: {
+      name: 'js_sandbox_reference',
+      description:
+        'run_javascript のサンドボックス(QuickJS)で使える API と制限、Node.js 風のコードの書き換え方を Markdown で返す。' +
+        'run_javascript を書く前や、ReferenceError などで失敗した後に参照する。',
+      parameters: { type: 'object', properties: {}, additionalProperties: false },
+    },
+    source: { kind: 'builtin' },
+    category: 'code',
+    defaultPolicy: 'auto',
+    execute: async () => ok(SANDBOX_REFERENCE),
+  };
+  return [runJs, reference];
 }

@@ -18,6 +18,8 @@ import { invoke } from '@renderer/lib/ipc';
 import {
   invalidateConversationView,
   keys,
+  useAbortTaskMutation,
+  useBackgroundTasks,
   useBranches,
   useCapabilities,
   useCompactMutation,
@@ -79,6 +81,36 @@ export function ChatPane({ conversationId }: { conversationId: string }) {
       ? Math.round((usage.data.used / usage.data.limit) * 100)
       : null;
   const overThreshold = percent !== null && percent >= (threshold.data ?? 80);
+  // バックグラウンドタスク待ち(M16): 完了まで送信できない。一覧と中断ボタンを出す
+  const bgTasks = useBackgroundTasks(conversationId);
+  const abortTask = useAbortTaskMutation();
+  const waitingTasks = bgTasks.data ?? [];
+  const backgroundBanner =
+    waitingTasks.length > 0 ? (
+      <div
+        className="border-accent/40 bg-accent/10 mb-2 flex flex-col gap-1 rounded-md border px-3 py-1.5 text-xs"
+        role="status"
+      >
+        {waitingTasks.map((t) => (
+          <div key={t.callId} className="flex items-center gap-2">
+            <Loader2 size={13} className="text-accent shrink-0 animate-spin" />
+            <span className="min-w-0 flex-1">
+              バックグラウンドタスク <span className="font-mono">{t.name}</span>{' '}
+              の完了を待っています(開始 {new Date(t.startedAt).toLocaleTimeString('ja-JP')}
+              )。完了すると応答を再開します
+            </span>
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled={abortTask.isPending}
+              onClick={() => abortTask.mutate({ conversationId, callId: t.callId })}
+            >
+              中断
+            </Button>
+          </div>
+        ))}
+      </div>
+    ) : null;
   const contextBanner = compacting ? (
     <div
       className="border-border bg-surface-2 mb-2 flex items-center gap-2 rounded-md border px-3 py-1.5 text-xs"
@@ -415,7 +447,12 @@ export function ChatPane({ conversationId }: { conversationId: string }) {
         )}
         <Composer
           conversation={c}
-          disabled={!canSend}
+          disabled={!canSend || waitingTasks.length > 0}
+          disabledReason={
+            canSend && waitingTasks.length > 0
+              ? 'バックグラウンドタスクの完了を待っています(上の「中断」で止められます)'
+              : undefined
+          }
           running={!!runningRunId}
           nativeVideo={caps.data?.video === 'native'}
           toolsSupported={caps.data?.tools ?? true}
@@ -426,6 +463,7 @@ export function ChatPane({ conversationId }: { conversationId: string }) {
           draft={draft}
           banner={
             <>
+              {backgroundBanner}
               {contextBanner}
               {branching && (
                 <div

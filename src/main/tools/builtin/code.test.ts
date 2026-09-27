@@ -152,6 +152,22 @@ describe('run_javascript tool', () => {
     expect(r.result).toBe(3);
   });
 
+  it('adds a rewrite hint when Node-style globals are used, and serves the reference', async () => {
+    const [runJs, reference] = createCodeTools({ store });
+    const r = await runJs!.execute({ code: `const fs = require('fs'); return fs;` }, ctx);
+    expect(r.isError).toBe(true);
+    const payload = JSON.parse(r.text) as { error: string };
+    expect(payload.error).toContain("ReferenceError: 'require' is not defined");
+    expect(payload.error).toContain('ヒント: require / import は使えません');
+    expect(payload.error).toContain('js_sandbox_reference');
+    const ref = await reference!.execute({}, ctx);
+    expect(ref.text).toContain('QuickJS');
+    expect(ref.text).toContain('udjat.readFile');
+    expect(runJs!.definition.description).toContain('QuickJS');
+    expect(runJs!.background?.({ background: true })).toBe(true);
+    expect(runJs!.background?.({})).toBe(false);
+  });
+
   it('rejects relative paths in allow_* and reports timeouts', async () => {
     const rel = await tool().execute({ code: 'return 1', allow_read: ['relative/path'] }, ctx);
     expect(rel.isError).toBe(true);

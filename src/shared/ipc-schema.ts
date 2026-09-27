@@ -3,6 +3,7 @@ import type { IpcEventChannel, IpcInvokeChannel } from './ipc-channels';
 import {
   AttachmentRefSchema,
   AttachmentSchema,
+  BackgroundTaskSchema,
   CapabilitiesSchema,
   CapabilityOverridesSchema,
   ChatRunEventSchema,
@@ -212,7 +213,18 @@ export const ipcInvokeSchema = {
       runId: z.string().min(1),
       callId: z.string().min(1),
       decision: ToolApprovalDecisionSchema,
+      /** 拒否の理由(M15)。モデルに tool 結果として返す */
+      reason: z.string().optional(),
     }),
+    output: z.boolean(),
+  },
+  /** バックグラウンドタスク(M16)。conversationId 省略で全会話 */
+  'chat:backgroundTasks': {
+    input: z.object({ conversationId: z.string().optional() }),
+    output: z.array(BackgroundTaskSchema),
+  },
+  'chat:abortTask': {
+    input: z.object({ conversationId: z.string().min(1), callId: z.string().min(1) }),
     output: z.boolean(),
   },
 

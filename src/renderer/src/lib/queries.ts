@@ -136,6 +136,24 @@ export function useContextUsage(conversationId: string | null) {
   });
 }
 
+/** 実行中のバックグラウンドタスク(M16)。conversationId 省略で全会話。念のため定期的にも取り直す */
+export function useBackgroundTasks(conversationId?: string | null) {
+  return useQuery({
+    queryKey: ['chat:backgroundTasks', conversationId ?? 'all'],
+    queryFn: () => invoke('chat:backgroundTasks', conversationId ? { conversationId } : {}),
+    refetchInterval: (q) => ((q.state.data?.length ?? 0) > 0 ? 5_000 : 30_000),
+    retry: 0,
+  });
+}
+
+export function useAbortTaskMutation() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (v: { conversationId: string; callId: string }) => invoke('chat:abortTask', v),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['chat:backgroundTasks'] }),
+  });
+}
+
 /** 会話の要約圧縮(M14) */
 export function useCompactMutation(conversationId: string) {
   const qc = useQueryClient();

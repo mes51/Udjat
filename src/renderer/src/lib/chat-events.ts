@@ -22,6 +22,11 @@ export function subscribeChatEvents(qc: QueryClient): () => void {
       // 常駐状態が変わったのでヘッダーの表示を取り直す
       void qc.invalidateQueries({ queryKey: ['models:status'] });
     }
+    if (t === 'tool-background') {
+      // 切り離し / 完了で一覧と会話表示を取り直す(M16)
+      void qc.invalidateQueries({ queryKey: ['chat:backgroundTasks'] });
+      void invalidateConversationView(qc, ev.conversationId);
+    }
     if (t === 'compacting' && ev.event.state !== 'start') {
       // 要約ノードが増えた(または失敗した)ので表示を取り直す
       void invalidateConversationView(qc, ev.conversationId);

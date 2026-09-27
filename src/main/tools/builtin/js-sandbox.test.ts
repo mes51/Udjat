@@ -99,6 +99,51 @@ describe('js sandbox', () => {
     });
   });
 
+  it('provides timers, sleep, callTool, TextEncoder and atob/btoa', async () => {
+    const calls: string[] = [];
+    const r = await runJavaScript(
+      `const t0 = Date.now();
+       await udjat.sleep(30);
+       const viaTimeout = await new Promise((res) => setTimeout(() => res('timer'), 20));
+       const id = setTimeout(() => { throw new Error('should not fire'); }, 10);
+       clearTimeout(id);
+       let ticks = 0;
+       const iv = setInterval(() => { ticks++; if (ticks === 3) clearInterval(iv); }, 5);
+       await udjat.sleep(60);
+       const tool = await udjat.callTool('current_datetime', {});
+       let denied = null;
+       try { await udjat.callTool('fs_write', { path: 'x' }); } catch (e) { denied = e.message; }
+       const bytes = new TextEncoder().encode('日本語 ok');
+       const back = new TextDecoder().decode(bytes);
+       return { waited: Date.now() - t0 >= 30, viaTimeout, ticks, tool, denied, len: bytes.length, back, b64: btoa('hi'), un: atob('aGk=') };`,
+      {
+        timeoutMs: 5000,
+        host: {
+          ...denyAll,
+          callTool: async (name, args) => {
+            calls.push(`${name} ${JSON.stringify(args)}`);
+            return name === 'fs_write'
+              ? { text: 'error: requires approval', isError: true }
+              : { text: '{"iso":"2026-09-27"}', isError: false };
+          },
+        },
+      },
+    );
+    expect(r.error).toBeUndefined();
+    expect(r.result).toEqual({
+      waited: true,
+      viaTimeout: 'timer',
+      ticks: 3,
+      tool: { iso: '2026-09-27' },
+      denied: 'error: requires approval',
+      len: 12,
+      back: '日本語 ok',
+      b64: 'aGk=',
+      un: 'hi',
+    });
+    expect(calls).toEqual(['current_datetime {}', 'fs_write {"path":"x"}']);
+  });
+
   it('interrupts infinite loops at the deadline', async () => {
     const r = await runJavaScript(`let i = 0; while (true) i++;`, {
       timeoutMs: 500,

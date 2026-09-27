@@ -38,6 +38,8 @@ export const IPC_INVOKE_CHANNELS = [
   'chat:abort',
   'chat:running',
   'chat:compact',
+  'chat:backgroundTasks',
+  'chat:abortTask',
   'context:usage',
   'tools:list',
   'tools:setPolicy',

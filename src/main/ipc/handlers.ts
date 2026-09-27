@@ -210,6 +210,12 @@ export function registerIpcHandlers(ctx: AppContext): void {
   handleIpc('chat:running', ({ conversationId }) => ctx.chat.isRunning(conversationId));
   handleIpc('chat:compact', ({ conversationId }) => ctx.chat.compact(conversationId));
   handleIpc('context:usage', ({ conversationId }) => ctx.chat.contextUsage(conversationId));
+  handleIpc('chat:backgroundTasks', ({ conversationId }) =>
+    ctx.chat.backgroundTasks(conversationId),
+  );
+  handleIpc('chat:abortTask', ({ conversationId, callId }) =>
+    ctx.chat.abortTask(conversationId, callId),
+  );
 
   // --- 添付 ---
   handleIpc('attachments:addBytes', ({ name, mime, base64 }) =>
@@ -333,8 +339,8 @@ export function registerIpcHandlers(ctx: AppContext): void {
     ctx.tools.setPolicy(name, policy);
     return undefined;
   });
-  handleIpc('tools:approve', ({ runId, callId, decision }) =>
-    ctx.chat.approve(runId, callId, decision),
+  handleIpc('tools:approve', ({ runId, callId, decision, reason }) =>
+    ctx.chat.approve(runId, callId, decision, reason),
   );
 }
 

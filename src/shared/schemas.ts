@@ -246,8 +246,27 @@ export const ToolMetaSchema = z.object({
   durationMs: z.number(),
   isError: z.boolean(),
   approval: z.enum(['auto', 'approved', 'approved-conversation', 'denied']),
+  /** 拒否時にユーザーが付けた理由(M15) */
+  denyReason: z.string().optional(),
+  /** バックグラウンドタスクとして切り離した呼び出し(M16) */
+  background: z
+    .object({
+      status: z.enum(['running', 'done', 'aborted', 'lost']),
+      startedAt: z.number(),
+    })
+    .optional(),
 });
 export type ToolMeta = z.infer<typeof ToolMetaSchema>;
+
+/** 実行中のバックグラウンドタスク(M16) */
+export const BackgroundTaskSchema = z.object({
+  conversationId: z.string(),
+  callId: z.string(),
+  messageId: z.string(),
+  name: z.string(),
+  startedAt: z.number(),
+});
+export type BackgroundTask = z.infer<typeof BackgroundTaskSchema>;
 
 /** MCP サーバーの接続設定(Claude Desktop の mcpServers と互換の形を保つ) */
 export const McpStdioConfigSchema = z.object({
@@ -384,6 +403,13 @@ export const ChatEventSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('path-changed') }),
   /** 送信前の自動コンパクション(要約中)の進行 */
   z.object({ type: z.literal('compacting'), state: z.enum(['start', 'done', 'error']) }),
+  /** ツール呼び出しをバックグラウンドタスクに切り離した / タスクが終わった(M16) */
+  z.object({
+    type: z.literal('tool-background'),
+    state: z.enum(['start', 'end']),
+    callId: z.string(),
+    messageId: z.string(),
+  }),
   /** run 全体の終了(ツールループを含む)。done はセグメント単位なので別に流す */
   z.object({ type: z.literal('run-end') }),
 ]);

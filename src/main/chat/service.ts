@@ -1,6 +1,7 @@
 import type {
   Attachment,
   AttachmentRef,
+  BackgroundTask,
   Capabilities,
   ChatEvent,
   ChatRunEvent,
@@ -75,6 +76,23 @@ export interface RunHandle {
   assistantMessageId: string;
 }
 
+/** 切り離したツール呼び出し(M16) */
+interface BackgroundEntry {
+  conversationId: string;
+  callId: string;
+  messageId: string;
+  name: string;
+  startedAt: number;
+  runId: string;
+  controller: AbortController;
+}
+
+/** 承認カードの回答(M15: 拒否には理由が付く) */
+interface ApprovalAnswer {
+  decision: ToolApprovalDecision;
+  reason?: string;
+}
+
 interface ActiveRun {
   controller: AbortController;
   conversationId: string;
@@ -93,19 +111,35 @@ interface StreamOutcome {
 export class ChatService {
   private readonly runs = new Map<string, ActiveRun>();
   private readonly modelInfoCache = new Map<string, ModelInfo | null>();
-  private readonly pendingApprovals = new Map<string, (d: ToolApprovalDecision) => void>();
+  private readonly pendingApprovals = new Map<string, (d: ApprovalAnswer) => void>();
   /** 会話単位で「この会話では常に許可」されたツール名 */
   private readonly conversationAllow = new Map<string, Set<string>>();
   /** モデル管理に非対応と判明したプロファイル(profileId+baseUrl -> 再確認してよい時刻) */
   private readonly unsupportedUntil = new Map<string, number>();
+  /** 切り離したツール呼び出し(M16)。キーは conversationId + callId */
+  private readonly background = new Map<string, BackgroundEntry>();
 
-  constructor(private readonly deps: ChatServiceDeps) {}
+  constructor(private readonly deps: ChatServiceDeps) {
+    // 前回の終了で置き去りになったバックグラウンドタスクを lost にする
+    for (const m of deps.messages.listBackgroundRunning()) {
+      const meta = m.toolMeta as ToolMeta;
+      deps.messages.update(m.id, {
+        parts: [{ type: 'text', text: 'error: アプリの終了により中断されました' }],
+        toolMeta: {
+          ...meta,
+          isError: true,
+          background: { ...meta.background!, status: 'lost' },
+        },
+      });
+    }
+  }
 
   /** ユーザー発言を追加して応答を開始する */
   async send(input: SendInput): Promise<RunHandle> {
     const { conversations, messages } = this.deps;
     const conv = conversations.get(input.conversationId);
     if (!conv) throw new Error('会話が見つかりません');
+    this.assertNoBackground(conv.id);
     const profile = this.requireProfile(conv.serverProfileId);
 
     const refs = input.attachments ?? [];
@@ -251,6 +285,7 @@ export class ChatService {
     const conv = conversations.get(target.conversationId);
     if (!conv) throw new Error('会話が見つかりません');
     if (this.isRunning(conv.id)) throw new Error('この会話は応答生成中です');
+    this.assertNoBackground(conv.id);
     const profile = this.requireProfile(conv.serverProfileId);
     // ツール呼び出しを含む応答は複数セグメントに分かれているので、直前のユーザー発言まで遡って
     // そこから作り直す(途中のツール結果は新しい分岐には含めない)
@@ -284,13 +319,153 @@ export class ChatService {
 
   abortAll(): void {
     for (const id of [...this.runs.keys()]) this.abort(id);
+    for (const e of this.background.values()) e.controller.abort(new Error('app quit'));
   }
 
-  /** 承認待ちのツール呼び出しに回答する */
-  approve(runId: string, callId: string, decision: ToolApprovalDecision): boolean {
+  // ---------------------------------------------------------------------------
+  // バックグラウンドタスク(M16。docs/plan/10-approval-background-sandbox.md)
+  // ---------------------------------------------------------------------------
+
+  /** 実行中のバックグラウンドタスク(conversationId 省略で全会話) */
+  backgroundTasks(conversationId?: string): BackgroundTask[] {
+    return [...this.background.values()]
+      .filter((e) => !conversationId || e.conversationId === conversationId)
+      .map((e) => ({
+        conversationId: e.conversationId,
+        callId: e.callId,
+        messageId: e.messageId,
+        name: e.name,
+        startedAt: e.startedAt,
+      }));
+  }
+
+  hasBackground(conversationId: string): boolean {
+    for (const e of this.background.values()) if (e.conversationId === conversationId) return true;
+    return false;
+  }
+
+  private assertNoBackground(conversationId: string): void {
+    if (this.hasBackground(conversationId))
+      throw new Error('この会話はバックグラウンドタスクの完了を待っています(中断もできます)');
+  }
+
+  /** バックグラウンドタスクを中断する。結果はエラーとして記録し、応答は再開しない */
+  abortTask(conversationId: string, callId: string): boolean {
+    const e = this.background.get(`${conversationId}\u0000${callId}`);
+    if (!e) return false;
+    e.controller.abort(new Error('aborted by user'));
+    return true;
+  }
+
+  /** 切り離したツール呼び出しが終わった時の後処理: 結果を書き込み、条件が揃えば応答を再開する */
+  private finishBackground(key: string, result: ToolResult): void {
+    const { conversations, messages } = this.deps;
+    const e = this.background.get(key);
+    if (!e) return;
+    this.background.delete(key);
+    const aborted = e.controller.signal.aborted;
+    const msg = messages.get(e.messageId);
+    if (!msg) return;
+    const meta = msg.toolMeta as ToolMeta;
+    const finalResult: ToolResult = aborted
+      ? { text: 'error: ユーザーがバックグラウンドタスクを中断しました', isError: true }
+      : result;
+    messages.update(e.messageId, {
+      parts: [{ type: 'text', text: finalResult.text }],
+      toolMeta: {
+        ...meta,
+        durationMs: Date.now() - e.startedAt,
+        isError: finalResult.isError ?? false,
+        background: { status: aborted ? 'aborted' : 'done', startedAt: e.startedAt },
+      },
+    });
+    const emit = (event: ChatEvent) =>
+      this.deps.emit({
+        runId: e.runId,
+        conversationId: e.conversationId,
+        messageId: e.messageId,
+        event,
+      });
+
+    const conv = conversations.get(e.conversationId);
+    const onActivePath =
+      !!conv?.activeLeafId &&
+      messages.pathToRoot(conv.activeLeafId).some((m) => m.id === e.messageId);
+    let leafId = conv?.activeLeafId ?? null;
+    if (conv && onActivePath && leafId) {
+      const mediaMsg = this.deliverMedia(e.conversationId, leafId, e.name, finalResult);
+      if (mediaMsg) {
+        leafId = mediaMsg.id;
+        conversations.update(conv.id, { activeLeafId: leafId });
+      }
+      if (aborted) {
+        const note = messages.create({
+          conversationId: conv.id,
+          parentId: leafId,
+          role: 'assistant',
+          kind: 'note',
+          parts: [{ type: 'text', text: `バックグラウンドタスク ${e.name} を中断しました` }],
+        });
+        conversations.update(conv.id, { activeLeafId: note.id });
+      }
+    }
+    emit({ type: 'tool-background', state: 'end', callId: e.callId, messageId: e.messageId });
+
+    // 同じ会話の他のタスクが全部終わり、末尾がまだツール結果なら assistant を作って続きを生成する
+    if (aborted || !conv || !onActivePath || !leafId || this.hasBackground(conv.id)) return;
+    if (this.isRunning(conv.id)) return;
+    const last = messages.get(leafId);
+    if (!last || !(last.role === 'tool' || last.kind === 'tool-media')) return;
+    const profile = this.deps.profiles.get(conv.serverProfileId ?? '');
+    if (!profile) return;
+    const assistant = messages.create({
+      conversationId: conv.id,
+      parentId: leafId,
+      role: 'assistant',
+      parts: [],
+      model: resolveModel(conv, profile),
+    });
+    conversations.update(conv.id, { activeLeafId: assistant.id });
+    this.start(conv.id, profile, assistant);
+  }
+
+  /** 画像・動画を含むツール結果を tool-media メッセージとして末尾に足す(無ければ null) */
+  private deliverMedia(
+    conversationId: string,
+    parentId: string,
+    toolName: string,
+    result: ToolResult,
+  ): Message | null {
+    const mediaList = result.media ?? [];
+    if (mediaList.length === 0 || !this.deps.media) return null;
+    const parts: Part[] = [{ type: 'text', text: `[tool result media: ${toolName}]` }];
+    for (const m of mediaList) {
+      if (m.kind === 'video')
+        parts.push({
+          type: 'video',
+          attachmentId: m.attachmentId,
+          name: m.label,
+          sendMode: 'native',
+        });
+      else parts.push({ type: 'image', attachmentId: m.attachmentId, name: m.label });
+    }
+    const mediaMsg = this.deps.messages.create({
+      conversationId,
+      parentId,
+      role: 'user',
+      kind: 'tool-media',
+      parts,
+    });
+    for (const m of mediaList) this.deps.media.attachments.link(mediaMsg.id, m.attachmentId);
+    return mediaMsg;
+  }
+
+  /** 承認待ちのツール呼び出しに回答する。reason は拒否の理由(M15) */
+  approve(runId: string, callId: string, decision: ToolApprovalDecision, reason?: string): boolean {
     const resolve = this.pendingApprovals.get(`${runId}\u0000${callId}`);
     if (!resolve) return false;
-    resolve(decision);
+    const trimmed = reason?.trim();
+    resolve({ decision, ...(trimmed ? { reason: trimmed } : {}) });
     return true;
   }
 
@@ -525,6 +700,7 @@ export class ChatService {
     const conv = conversations.get(conversationId);
     if (!conv) throw new Error('会話が見つかりません');
     if (this.isRunning(conv.id)) throw new Error('この会話は応答生成中です');
+    this.assertNoBackground(conv.id);
     const profile = this.requireProfile(conv.serverProfileId);
     const model = resolveModel(conv, profile);
     if (!model) throw new Error('モデルが選択されていません');
@@ -753,8 +929,9 @@ export class ChatService {
 
         // --- ツール実行 ---
         let parentId = assistant.id;
+        let detachedAny = false;
         for (const call of outcome.toolCalls) {
-          const { lastId } = await this.executeToolCall(call, {
+          const { lastId, detached } = await this.executeToolCall(call, {
             runId,
             conversationId,
             parentId,
@@ -763,6 +940,13 @@ export class ChatService {
             emit,
           });
           parentId = lastId;
+          if (detached) detachedAny = true;
+        }
+        if (detachedAny) {
+          // バックグラウンドタスクの完了を待つ。続きは finishBackground が再開する(M16)
+          conversations.update(conversationId, { activeLeafId: parentId });
+          emit({ type: 'path-changed' });
+          return;
         }
 
         // --- 次の assistant セグメント ---
@@ -878,7 +1062,7 @@ export class ChatService {
       counters: Map<string, number>;
       emit: (event: ChatEvent) => void;
     },
-  ): Promise<{ lastId: string; result: ToolResult }> {
+  ): Promise<{ lastId: string; result: ToolResult; detached?: boolean }> {
     const { messages, tools } = this.deps;
     const startedAt = Date.now();
 
@@ -892,6 +1076,7 @@ export class ChatService {
       policy !== 'deny' &&
       (tools.get(call.name)?.requiresApproval?.(parsed.args) ?? false);
     let approval: ToolMeta['approval'] = 'auto';
+    let denyReason: string | undefined;
     if (policy === 'deny') {
       approval = 'denied';
     } else if (
@@ -899,7 +1084,9 @@ export class ChatService {
       (policy === 'ask' && !this.conversationAllow.get(ctx.conversationId)?.has(call.name))
     ) {
       ctx.emit({ type: 'tool-approval-request', call });
-      const decision = await this.awaitApproval(ctx.runId, call.id, ctx.signal);
+      const answer = await this.awaitApproval(ctx.runId, call.id, ctx.signal);
+      const decision = answer.decision;
+      if (answer.reason) denyReason = answer.reason;
       if (decision === 'deny') approval = 'denied';
       else if (decision === 'allow-conversation') {
         approval = 'approved-conversation';
@@ -919,19 +1106,78 @@ export class ChatService {
         text:
           policy === 'deny'
             ? 'error: このツールは設定で無効化されています'
-            : 'error: ユーザーが実行を拒否しました',
+            : denyReason
+              ? `error: ユーザーが実行を拒否しました。理由: ${denyReason}\n(理由に沿って修正するか、必要なら意図を説明してから再試行してください。ユーザーへの返答は続けてください)`
+              : 'error: ユーザーが実行を拒否しました(ユーザーへの返答は続けてください)',
         isError: true,
       };
     } else {
       if (parsed.error) result = { text: `error: ${parsed.error}`, isError: true };
       else {
-        result = await tools.execute(call.name, parsed.args, {
+        // ツールには専用の AbortController を渡す。run の中断は切り離すまでは伝播し、切り離した後は独立させる
+        const controller = new AbortController();
+        const relay = () => controller.abort(ctx.signal.reason);
+        ctx.signal.addEventListener('abort', relay, { once: true });
+        const exec = tools.execute(call.name, parsed.args, {
           conversationId: ctx.conversationId,
           runId: ctx.runId,
-          signal: ctx.signal,
+          signal: controller.signal,
           counters: ctx.counters,
           getSetting: this.deps.getSetting ?? (() => null),
         });
+        const immediate = tools.get(call.name)?.background?.(parsed.args) ?? false;
+        const settingMs = Number(this.deps.getSetting?.('tools.backgroundAfterMs'));
+        const afterMs = immediate ? 0 : Number.isFinite(settingMs) ? settingMs : 30_000;
+        const raced =
+          immediate || afterMs > 0
+            ? await raceDetach(exec, afterMs, ctx.signal)
+            : { kind: 'result' as const, result: await exec };
+        if (raced.kind === 'detach') {
+          ctx.signal.removeEventListener('abort', relay);
+          const meta: ToolMeta = {
+            name: call.name,
+            args: call.args,
+            durationMs: 0,
+            isError: false,
+            approval,
+            background: { status: 'running', startedAt },
+          };
+          const toolMsg = messages.create({
+            conversationId: ctx.conversationId,
+            parentId: ctx.parentId,
+            role: 'tool',
+            parts: [{ type: 'text', text: '(バックグラウンドで実行中)' }],
+            toolCallId: call.id,
+            toolMeta: meta,
+          });
+          const key = `${ctx.conversationId}\u0000${call.id}`;
+          this.background.set(key, {
+            conversationId: ctx.conversationId,
+            callId: call.id,
+            messageId: toolMsg.id,
+            name: call.name,
+            startedAt,
+            runId: ctx.runId,
+            controller,
+          });
+          ctx.emit({
+            type: 'tool-background',
+            state: 'start',
+            callId: call.id,
+            messageId: toolMsg.id,
+          });
+          void exec.then(
+            (r) => this.finishBackground(key, r),
+            (err: unknown) =>
+              this.finishBackground(key, {
+                text: `error: ${(err as Error).message ?? String(err)}`,
+                isError: true,
+              }),
+          );
+          return { lastId: toolMsg.id, result: { text: '', isError: false }, detached: true };
+        }
+        ctx.signal.removeEventListener('abort', relay);
+        result = raced.result;
       }
     }
     const durationMs = Date.now() - startedAt;
@@ -943,6 +1189,7 @@ export class ChatService {
       durationMs,
       isError: result.isError ?? false,
       approval,
+      ...(denyReason ? { denyReason } : {}),
     };
     const toolMsg = messages.create({
       conversationId: ctx.conversationId,
@@ -954,37 +1201,17 @@ export class ChatService {
     });
     // 画像・動画を含む結果は、tool メッセージの直後に user メッセージ(kind: tool-media)として配送する
     // (role: tool に画像を入れられないサーバーが多いため。docs/plan/03 参照)
-    const mediaList = result.media ?? [];
-    if (mediaList.length === 0 || !this.deps.media) return { lastId: toolMsg.id, result };
-    const parts: Part[] = [{ type: 'text', text: `[tool result media: ${call.name}]` }];
-    for (const m of mediaList) {
-      if (m.kind === 'video')
-        parts.push({
-          type: 'video',
-          attachmentId: m.attachmentId,
-          name: m.label,
-          sendMode: 'native',
-        });
-      else parts.push({ type: 'image', attachmentId: m.attachmentId, name: m.label });
-    }
-    const mediaMsg = messages.create({
-      conversationId: ctx.conversationId,
-      parentId: toolMsg.id,
-      role: 'user',
-      kind: 'tool-media',
-      parts,
-    });
-    for (const m of mediaList) this.deps.media.attachments.link(mediaMsg.id, m.attachmentId);
-    return { lastId: mediaMsg.id, result };
+    const mediaMsg = this.deliverMedia(ctx.conversationId, toolMsg.id, call.name, result);
+    return { lastId: mediaMsg ? mediaMsg.id : toolMsg.id, result };
   }
 
   private awaitApproval(
     runId: string,
     callId: string,
     signal: AbortSignal,
-  ): Promise<ToolApprovalDecision> {
+  ): Promise<ApprovalAnswer> {
     const key = `${runId}\u0000${callId}`;
-    return new Promise<ToolApprovalDecision>((resolve, reject) => {
+    return new Promise<ApprovalAnswer>((resolve, reject) => {
       const onAbort = () => {
         this.pendingApprovals.delete(key);
         reject(signal.reason ?? new Error('aborted'));
@@ -1072,4 +1299,25 @@ export function renderTranscript(
   }
   const head = dropped > 0 ? `[${dropped} earlier messages omitted for length]\n\n` : '';
   return head + blocks.join('\n\n');
+}
+
+/** ツールの Promise と切り離しタイマーを競走させる。run が中断されたらツール側の拒否がそのまま伝わる */
+async function raceDetach(
+  exec: Promise<ToolResult>,
+  afterMs: number,
+  signal: AbortSignal,
+): Promise<{ kind: 'result'; result: ToolResult } | { kind: 'detach' }> {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  const detach = new Promise<{ kind: 'detach' }>((resolve) => {
+    timer = setTimeout(() => resolve({ kind: 'detach' }), Math.max(0, afterMs));
+  });
+  try {
+    return await Promise.race([
+      exec.then((result) => ({ kind: 'result' as const, result })),
+      detach,
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+    void signal;
+  }
 }

@@ -24,6 +24,13 @@ export interface SandboxHost {
     { id: string; name: string; mime: string; size: number; kind: string }[]
   >;
   readAttachment(id: string, encoding: 'utf8' | 'base64'): Promise<string>;
+  /** 待機(M16: ポーリングを 1 回の呼び出しに閉じ込めるため)。省略時はホスト側の setTimeout */
+  sleep?(ms: number): Promise<void>;
+  /** 他のツールを呼ぶ(M16)。省略時はエラー */
+  callTool?(
+    name: string,
+    args: Record<string, unknown>,
+  ): Promise<{ text: string; isError: boolean }>;
 }
 
 export interface RunOptions {
@@ -111,7 +118,69 @@ const PRELUDE = String.raw`
     attachments: () => call('listAttachments', {}),
     readAttachment: readAs('readAttachment', 'id'),
     base64: Object.freeze({ encode: b64encode, decode: b64decode }),
+    sleep: (ms) => call('sleep', { ms: Math.max(0, Number(ms) || 0) }),
+    callTool: (name, args) => call('callTool', { name: String(name), args: args && typeof args === 'object' ? args : {} }).then((r) => {
+      if (r.isError) throw new Error(r.text);
+      try { return JSON.parse(r.text); } catch { return r.text; }
+    }),
   });
+  // タイマー(ホストの setTimeout で待つ。推論は走らない)
+  let nextTimer = 1;
+  const timers = new Map();
+  globalThis.setTimeout = (fn, ms, ...args) => {
+    const id = nextTimer++;
+    timers.set(id, true);
+    udjat.sleep(ms).then(() => { if (timers.delete(id)) fn(...args); });
+    return id;
+  };
+  globalThis.clearTimeout = (id) => { timers.delete(id); };
+  globalThis.setInterval = (fn, ms, ...args) => {
+    const id = nextTimer++;
+    timers.set(id, true);
+    const tick = () => udjat.sleep(ms).then(() => { if (timers.has(id)) { fn(...args); tick(); } });
+    tick();
+    return id;
+  };
+  globalThis.clearInterval = globalThis.clearTimeout;
+  // UTF-8 の TextEncoder / TextDecoder と atob / btoa(最低限)
+  const utf8encode = (str) => {
+    const out = [];
+    for (const ch of String(str)) {
+      let c = ch.codePointAt(0);
+      if (c < 0x80) out.push(c);
+      else if (c < 0x800) out.push(0xc0 | (c >> 6), 0x80 | (c & 63));
+      else if (c < 0x10000) out.push(0xe0 | (c >> 12), 0x80 | ((c >> 6) & 63), 0x80 | (c & 63));
+      else out.push(0xf0 | (c >> 18), 0x80 | ((c >> 12) & 63), 0x80 | ((c >> 6) & 63), 0x80 | (c & 63));
+    }
+    return new Uint8Array(out);
+  };
+  const utf8decode = (bytes) => {
+    let s = '';
+    const b = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+    for (let i = 0; i < b.length; ) {
+      const c = b[i];
+      let cp, n;
+      if (c < 0x80) { cp = c; n = 1; }
+      else if (c < 0xe0) { cp = ((c & 31) << 6) | (b[i + 1] & 63); n = 2; }
+      else if (c < 0xf0) { cp = ((c & 15) << 12) | ((b[i + 1] & 63) << 6) | (b[i + 2] & 63); n = 3; }
+      else { cp = ((c & 7) << 18) | ((b[i + 1] & 63) << 12) | ((b[i + 2] & 63) << 6) | (b[i + 3] & 63); n = 4; }
+      s += String.fromCodePoint(cp);
+      i += n;
+    }
+    return s;
+  };
+  globalThis.TextEncoder = class TextEncoder { get encoding() { return 'utf-8'; } encode(s) { return utf8encode(s === undefined ? '' : s); } };
+  globalThis.TextDecoder = class TextDecoder { get encoding() { return 'utf-8'; } decode(b) { return b === undefined ? '' : utf8decode(b); } };
+  globalThis.btoa = (str) => {
+    const bytes = new Uint8Array(String(str).length);
+    for (let i = 0; i < bytes.length; i++) {
+      const c = String(str).charCodeAt(i);
+      if (c > 255) throw new Error('btoa: Latin-1 の範囲外の文字です(TextEncoder + udjat.base64.encode を使ってください)');
+      bytes[i] = c;
+    }
+    return b64encode(bytes);
+  };
+  globalThis.atob = (str) => Array.from(b64decode(String(str)), (c) => String.fromCharCode(c)).join('');
   // Web 標準風の fetch(モデルは udjat.fetch より素の fetch を書きがち)。
   // 応答は Response 風: status / ok / headers.get() / text() / json()
   function normalizeInit(init) {
@@ -341,6 +410,23 @@ async function dispatch(host: SandboxHost, name: string, rawArgs: string): Promi
       return host.listAttachments();
     case 'readAttachment':
       return host.readAttachment(s('id'), enc());
+    case 'sleep': {
+      const ms = typeof args['ms'] === 'number' ? args['ms'] : 0;
+      if (host.sleep) {
+        await host.sleep(ms);
+        return null;
+      }
+      await new Promise((r) => setTimeout(r, ms));
+      return null;
+    }
+    case 'callTool': {
+      if (!host.callTool) throw new Error('callTool is not available here');
+      const a = args['args'];
+      return host.callTool(
+        s('name'),
+        a && typeof a === 'object' ? (a as Record<string, unknown>) : {},
+      );
+    }
     default:
       throw new Error(`unknown host function: ${name}`);
   }

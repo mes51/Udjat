@@ -29,6 +29,8 @@ export interface ComposerProps {
   draft?: { key: number; text: string } | undefined;
   /** 入力欄の上に出す案内(分岐作成中など) */
   banner?: ReactNode;
+  /** disabled の理由(省略時はプロファイル / モデル未選択の案内) */
+  disabledReason?: string | undefined;
 }
 
 export function Composer({
@@ -43,6 +45,7 @@ export function Composer({
   onAbort,
   draft,
   banner,
+  disabledReason,
 }: ComposerProps) {
   const [text, setText] = useState('');
   const [adding, setAdding] = useState(0);
@@ -180,7 +183,7 @@ export function Composer({
             onCompositionEnd={() => (composing.current = false)}
             placeholder={
               disabled
-                ? 'サーバープロファイルとモデルを選択してください'
+                ? (disabledReason ?? 'サーバープロファイルとモデルを選択してください')
                 : 'メッセージを入力 (Enter で送信、Shift+Enter で改行、画像や動画はドロップか貼り付け)'
             }
             disabled={disabled}

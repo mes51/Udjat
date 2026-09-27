@@ -199,14 +199,17 @@ describe('ChatService tool loop', () => {
     const run = await service.send({ conversationId: c.id, text: 'x' });
     await waitUntil(() => events.some((e) => e.event.type === 'tool-approval-request'));
     expect(executed).toHaveLength(0);
-    expect(service.approve(run.runId, 'call_1', 'deny')).toBe(true);
+    expect(service.approve(run.runId, 'call_1', 'deny', ' 天気は聞いていない ')).toBe(true);
     await service.waitFor(run.runId);
 
     const path = messages.pathToRoot(conversations.get(c.id)!.activeLeafId!);
     expect(path[2]).toMatchObject({
       role: 'tool',
-      toolMeta: { approval: 'denied', isError: true },
+      toolMeta: { approval: 'denied', isError: true, denyReason: '天気は聞いていない' },
     });
+    // 理由はモデルに tool 結果として届く(M15)
+    expect(path[2]!.parts[0]).toMatchObject({ type: 'text' });
+    expect((path[2]!.parts[0] as { text: string }).text).toContain('理由: 天気は聞いていない');
     expect(executed).toHaveLength(0);
     // モデルには拒否がエラー結果として伝わり、最終回答まで進む
     expect(path[3]!.role).toBe('assistant');

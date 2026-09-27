@@ -1,4 +1,5 @@
 import type {
+  ToolMeta,
   FinishReason,
   Message,
   MessageKind,
@@ -225,6 +226,19 @@ export class MessageRepository {
         .prepare('SELECT * FROM messages WHERE conversation_id = ? ORDER BY created_at')
         .all(conversationId) as unknown as Row[]
     ).map(fromRow);
+  }
+
+  /** バックグラウンド実行中のまま残っている tool メッセージ(起動時の後始末用。M16) */
+  listBackgroundRunning(): Message[] {
+    return (
+      this.db
+        .prepare(
+          `SELECT * FROM messages WHERE role = 'tool' AND tool_meta LIKE '%"status":"running"%'`,
+        )
+        .all() as unknown as Row[]
+    )
+      .map(fromRow)
+      .filter((m) => (m.toolMeta as ToolMeta | null)?.background?.status === 'running');
   }
 
   delete(id: string): boolean {
