@@ -311,7 +311,12 @@ export class ChatService {
   async modelStatus(profile: ServerProfile, signal?: AbortSignal): Promise<ModelStatus> {
     const mgr = getAdapter(profile.kind).models;
     if (!mgr) return { supported: false, loaded: [], loading: [] };
-    return mgr.status(profile, signal);
+    try {
+      return await mgr.status(profile, signal);
+    } catch {
+      // 状態が取れない(エンドポイントが無い・落ちている)なら「操作できない」として扱う
+      return { supported: false, loaded: [], loading: [] };
+    }
   }
 
   async loadModel(
@@ -676,21 +681,31 @@ export class ChatService {
 
     // 承認
     const policy = tools.policyFor(call.name);
+    const parsed = parseToolArgs(call.args);
+    // ツール側が「この引数なら必ず承認」と言うもの(権限を宣言したコード実行など)は
+    // ポリシー auto や「この会話では常に許可」でも確認する
+    const forced =
+      !parsed.error &&
+      policy !== 'deny' &&
+      (tools.get(call.name)?.requiresApproval?.(parsed.args) ?? false);
     let approval: ToolMeta['approval'] = 'auto';
     if (policy === 'deny') {
       approval = 'denied';
     } else if (
-      policy === 'ask' &&
-      !this.conversationAllow.get(ctx.conversationId)?.has(call.name)
+      forced ||
+      (policy === 'ask' && !this.conversationAllow.get(ctx.conversationId)?.has(call.name))
     ) {
       ctx.emit({ type: 'tool-approval-request', call });
       const decision = await this.awaitApproval(ctx.runId, call.id, ctx.signal);
       if (decision === 'deny') approval = 'denied';
       else if (decision === 'allow-conversation') {
         approval = 'approved-conversation';
-        let set = this.conversationAllow.get(ctx.conversationId);
-        if (!set) this.conversationAllow.set(ctx.conversationId, (set = new Set()));
-        set.add(call.name);
+        // 強制承認のツールは会話単位の常時許可には入れない(次回も権限を確認する)
+        if (!forced) {
+          let set = this.conversationAllow.get(ctx.conversationId);
+          if (!set) this.conversationAllow.set(ctx.conversationId, (set = new Set()));
+          set.add(call.name);
+        }
       } else approval = 'approved';
     }
 
@@ -705,7 +720,6 @@ export class ChatService {
         isError: true,
       };
     } else {
-      const parsed = parseToolArgs(call.args);
       if (parsed.error) result = { text: `error: ${parsed.error}`, isError: true };
       else {
         result = await tools.execute(call.name, parsed.args, {

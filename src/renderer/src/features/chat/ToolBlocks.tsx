@@ -120,6 +120,29 @@ export function ToolResultCard({ message }: { message: Message }) {
   );
 }
 
+/** run_javascript の引数(承認カードでコードと権限を分けて見せる) */
+function parseCodeArgs(args: string): {
+  code: string;
+  perms: { label: string; items: string[] }[];
+} | null {
+  try {
+    const a = JSON.parse(args) as Record<string, unknown>;
+    if (typeof a['code'] !== 'string') return null;
+    const list = (k: string) =>
+      Array.isArray(a[k]) ? (a[k] as unknown[]).filter((x) => typeof x === 'string') : [];
+    return {
+      code: a['code'],
+      perms: [
+        { label: '読み取り', items: list('allow_read') as string[] },
+        { label: '書き込み', items: list('allow_write') as string[] },
+        { label: 'ネットワーク', items: list('allow_net') as string[] },
+      ].filter((p) => p.items.length > 0),
+    };
+  } catch {
+    return null;
+  }
+}
+
 /** 承認待ちカード */
 export function ApprovalCard({ callId }: { callId: string }) {
   const approval = useStreamStore((s) => s.approvals[callId]);
@@ -136,18 +159,47 @@ export function ApprovalCard({ callId }: { callId: string }) {
       setBusy(false);
     }
   };
+  const code = approval.call.name === 'run_javascript' ? parseCodeArgs(approval.call.args) : null;
 
   return (
     <div className="border-accent/40 bg-accent/10 mt-2 rounded-md border px-3 py-2 text-sm">
       <div className="flex items-center gap-1.5">
         <ShieldQuestion size={15} className="text-accent" />
         <span>
-          ツール <span className="font-mono">{approval.call.name}</span> の実行を許可しますか?
+          {code ? (
+            code.perms.length > 0 ? (
+              'コードの実行と、次の権限を許可しますか?'
+            ) : (
+              'コードの実行を許可しますか?(ファイル・ネットワークへのアクセスはありません)'
+            )
+          ) : (
+            <>
+              ツール <span className="font-mono">{approval.call.name}</span> の実行を許可しますか?
+            </>
+          )}
         </span>
       </div>
-      <pre className="text-fg-muted my-2 max-h-40 overflow-auto text-[11px] leading-relaxed">
-        {prettyArgs(approval.call.args)}
-      </pre>
+      {code ? (
+        <>
+          {code.perms.length > 0 && (
+            <ul className="my-2 flex flex-col gap-0.5 text-xs">
+              {code.perms.map((p) => (
+                <li key={p.label} className="flex gap-2">
+                  <span className="w-20 shrink-0 text-amber-300">{p.label}</span>
+                  <span className="font-mono break-all">{p.items.join(', ')}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+          <pre className="text-fg border-border bg-surface my-2 max-h-64 overflow-auto rounded border px-2 py-1.5 text-[11px] leading-relaxed">
+            {code.code}
+          </pre>
+        </>
+      ) : (
+        <pre className="text-fg-muted my-2 max-h-40 overflow-auto text-[11px] leading-relaxed">
+          {prettyArgs(approval.call.args)}
+        </pre>
+      )}
       <div className="flex gap-2">
         <Button size="sm" disabled={busy} onClick={() => void decide('allow')}>
           <Check size={13} /> 許可
@@ -157,6 +209,11 @@ export function ApprovalCard({ callId }: { callId: string }) {
           variant="secondary"
           disabled={busy}
           onClick={() => void decide('allow-conversation')}
+          title={
+            code && code.perms.length > 0
+              ? '権限を宣言した実行は毎回確認します(権限なしの実行だけ自動になります)'
+              : undefined
+          }
         >
           この会話では常に許可
         </Button>

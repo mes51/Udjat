@@ -94,6 +94,21 @@ export class AttachmentRepository {
     return (this.db.prepare('SELECT * FROM attachments').all() as unknown as Row[]).map(fromRow);
   }
 
+  /** 会話のどこかのメッセージに付いている添付(全分岐、作成順) */
+  listForConversation(conversationId: string): Attachment[] {
+    return (
+      this.db
+        .prepare(
+          `SELECT DISTINCT a.* FROM attachments a
+           JOIN message_attachments ma ON ma.attachment_id = a.id
+           JOIN messages m ON m.id = ma.message_id
+           WHERE m.conversation_id = ?
+           ORDER BY a.created_at`,
+        )
+        .all(conversationId) as unknown as Row[]
+    ).map(fromRow);
+  }
+
   /** どのメッセージからも参照されていない添付(削除候補) */
   listUnreferenced(): Attachment[] {
     return (

@@ -40,6 +40,11 @@ export interface RegisteredTool {
   defaultPolicy: ToolPolicy;
   /** この capability を満たさない時は提供しない */
   requires?: Partial<Capabilities>;
+  /**
+   * 引数を見て「ポリシーや会話単位の常時許可に関わらず承認が必要」と判定する
+   * (例: run_javascript がファイル/ネットワーク権限を宣言した時)
+   */
+  requiresApproval?: (args: Record<string, unknown>) => boolean;
   execute: (args: Record<string, unknown>, ctx: ToolContext) => Promise<ToolResult>;
 }
 

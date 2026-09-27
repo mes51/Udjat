@@ -128,6 +128,11 @@ export class MediaStore {
     return join(this.dirs.mediaDir, `${a.sha256}.${a.ext}`);
   }
 
+  /** 会話に付いている添付(run_javascript の udjat.attachments() 用) */
+  listForConversation(conversationId: string): Attachment[] {
+    return this.repo.listForConversation(conversationId);
+  }
+
   get(id: string): Attachment | null {
     return this.repo.get(id);
   }

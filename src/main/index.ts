@@ -11,6 +11,7 @@ import { McpManager } from './tools/mcp/manager';
 import { FfmpegService } from './media/ffmpeg';
 import { PdfService } from './media/pdf';
 import { createPdfTools } from './tools/builtin/pdf';
+import { createCodeTools } from './tools/builtin/code';
 import { MediaStore } from './media/store';
 import { VideoOps } from './media/video-ops';
 import { createVideoTools } from './tools/builtin/video';
@@ -120,6 +121,7 @@ if (!app.requestSingleInstanceLock()) {
     registerBuiltinTools(tools);
     for (const t of createVideoTools({ store: media, ops })) tools.register(t);
     for (const t of createPdfTools({ store: media, pdf })) tools.register(t);
+    for (const t of createCodeTools({ store: media })) tools.register(t);
     // 未参照の添付と孤立ファイルの掃除(起動を遅らせないよう少し後で)
     setTimeout(() => {
       try {
