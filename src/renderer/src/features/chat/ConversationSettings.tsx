@@ -259,16 +259,28 @@ export function ConversationSettings({ conversation }: { conversation: Conversat
           <Field
             label="思考 (thinking)"
             {...(caps.data?.reasoning === false
-              ? { hint: 'このモデルは思考非対応と推定' }
+              ? { hint: 'このモデルは思考非対応と推定。切替は即保存されます' }
               : (caps.data?.reasoningLevels.length ?? 0) > 0
-                ? { hint: 'このモデルは思考のレベルを指定できます' }
-                : {})}
+                ? { hint: 'レベルはモデルのテンプレートから検出。切替は即保存されます' }
+                : { hint: '切替は即保存されます' })}
           >
             <Select
               value={think}
               onChange={(e) => {
-                setThink(e.target.value);
-                setDirty(true);
+                // 思考の切替は頻繁に使うので、保存ボタンを待たずにその場で保存する
+                // (未保存の数値編集はそのまま残す)
+                const v = e.target.value;
+                setThink(v);
+                const next: ChatParams = { ...conversation.params };
+                delete next.think;
+                delete next.reasoningEffort;
+                if (v === 'off') next.think = false;
+                else if (v === 'on') next.think = true;
+                else if (v.startsWith('level:')) {
+                  next.think = true;
+                  next.reasoningEffort = v.slice('level:'.length);
+                }
+                update.mutate({ id: conversation.id, patch: { params: next } });
               }}
             >
               <option value="">サーバー既定</option>
