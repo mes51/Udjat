@@ -13,6 +13,7 @@ const profile: ServerProfile = {
   defaultParams: { contextLength: 8192, temperature: 0.7 },
   capabilityOverrides: {},
   modelCapabilityOverrides: {},
+  modelManagement: { autoLoad: true, unloadOthers: true },
   createdAt: 0,
   updatedAt: 0,
 };

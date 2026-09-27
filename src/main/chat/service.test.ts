@@ -68,6 +68,7 @@ describe('ChatService title generation', () => {
       defaultModel: 'm',
       defaultParams: {},
       capabilityOverrides: {},
+      modelManagement: { autoLoad: false, unloadOthers: false },
     });
     const c = conversations.create({ serverProfileId: p.id, model: null });
     const r1 = await service.send({ conversationId: c.id, text: '今日の天気は?' });
@@ -132,6 +133,7 @@ describe('ChatService', () => {
       defaultModel: 'qwen3:8b',
       defaultParams: {},
       capabilityOverrides: {},
+      modelManagement: { autoLoad: false, unloadOthers: false },
     });
     const c = conversations.create({ serverProfileId: p.id, model: null, systemPrompt: '短く' });
 
@@ -193,6 +195,7 @@ describe('ChatService', () => {
       defaultModel: 'm',
       defaultParams: {},
       capabilityOverrides: {},
+      modelManagement: { autoLoad: false, unloadOthers: false },
     });
     const c = conversations.create({ serverProfileId: p.id, model: null });
 
@@ -236,6 +239,7 @@ describe('ChatService', () => {
       defaultModel: 'm',
       defaultParams: {},
       capabilityOverrides: {},
+      modelManagement: { autoLoad: false, unloadOthers: false },
     });
     const c = conversations.create({ serverProfileId: p.id, model: null });
     const run = await service.send({ conversationId: c.id, text: 'x' });
@@ -263,6 +267,7 @@ describe('ChatService', () => {
       defaultModel: 'm',
       defaultParams: {},
       capabilityOverrides: {},
+      modelManagement: { autoLoad: false, unloadOthers: false },
     });
     const c = conversations.create({ serverProfileId: p.id, model: null });
     const run = await service.send({ conversationId: c.id, text: 'x' });

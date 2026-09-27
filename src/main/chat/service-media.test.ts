@@ -137,6 +137,7 @@ describe.skipIf(!available.ffmpeg)('ChatService with video attachments', () => {
       defaultModel: 'qwen3-vl',
       defaultParams: {},
       capabilityOverrides: {},
+      modelManagement: { autoLoad: false, unloadOthers: false },
     });
     const c = conversations.create({ serverProfileId: p.id, model: null });
     const video = await store.addFile(videoPath);
@@ -219,6 +220,7 @@ describe.skipIf(!available.ffmpeg)('ChatService with video attachments', () => {
       defaultModel: 'qwen3-vl',
       defaultParams: {},
       capabilityOverrides: {},
+      modelManagement: { autoLoad: false, unloadOthers: false },
     });
     const c = conversations.create({ serverProfileId: p.id, model: null });
     const video = await store.addFile(videoPath);
@@ -278,6 +280,7 @@ describe.skipIf(!available.ffmpeg)('ChatService with video attachments', () => {
       defaultModel: 'qwen3-vl',
       defaultParams: {},
       capabilityOverrides: {},
+      modelManagement: { autoLoad: false, unloadOthers: false },
     });
     const c = conversations.create({ serverProfileId: p.id, model: null });
     const video = await store.addFile(videoPath);
@@ -309,6 +312,7 @@ describe.skipIf(!available.ffmpeg)('ChatService with video attachments', () => {
       defaultModel: 'qwen3-vl',
       defaultParams: {},
       capabilityOverrides: {},
+      modelManagement: { autoLoad: false, unloadOthers: false },
     });
     const video = await store.addFile(videoPath);
     const dur = video.meta.durationMs!;
@@ -331,7 +335,11 @@ describe.skipIf(!available.ffmpeg)('ChatService with video attachments', () => {
     const vp = stored.parts.find((x) => x.type === 'video');
     expect(vp && vp.type === 'video' ? vp.range : null).toEqual(range);
     const clips = (
-      db.prepare("SELECT meta FROM attachments WHERE json_extract(meta, '$.derivedLabel') LIKE 'clip %'").all() as { meta: string }[]
+      db
+        .prepare(
+          "SELECT meta FROM attachments WHERE json_extract(meta, '$.derivedLabel') LIKE 'clip %'",
+        )
+        .all() as { meta: string }[]
     ).map((r) => JSON.parse(r.meta) as { durationMs?: number });
     expect(clips).toHaveLength(1);
     expect(clips[0]!.durationMs!).toBeLessThan(dur * 0.6);

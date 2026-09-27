@@ -13,7 +13,43 @@ export const keys = {
   search: (q: string) => ['messages:search', q] as const,
   tools: ['tools'] as const,
   setting: (key: string) => ['setting', key] as const,
+  modelStatus: (profileId: string) => ['models:status', profileId] as const,
 };
+
+/** サーバーのモデル常駐状態(M10)。対応サーバーなら定期的に取り直す */
+export function useModelStatus(profileId: string | null) {
+  return useQuery({
+    queryKey: keys.modelStatus(profileId ?? ''),
+    queryFn: () => invoke('models:status', { profileId: profileId! }),
+    enabled: !!profileId,
+    refetchInterval: (q) => (q.state.data?.supported ? 20_000 : false),
+    retry: false,
+  });
+}
+
+export function useModelLoadMutations(profileId: string | null) {
+  const qc = useQueryClient();
+  const refresh = () => {
+    if (profileId) qc.setQueryData(keys.modelStatus(profileId), undefined);
+    void qc.invalidateQueries({ queryKey: ['models:status'] });
+    if (profileId) void qc.invalidateQueries({ queryKey: keys.models(profileId) });
+  };
+  const load = useMutation({
+    mutationFn: (model: string) => invoke('models:load', { profileId: profileId!, model }),
+    onSuccess: (status) => {
+      if (profileId) qc.setQueryData(keys.modelStatus(profileId), status);
+      refresh();
+    },
+  });
+  const unload = useMutation({
+    mutationFn: (model: string) => invoke('models:unload', { profileId: profileId!, model }),
+    onSuccess: (status) => {
+      if (profileId) qc.setQueryData(keys.modelStatus(profileId), status);
+      refresh();
+    },
+  });
+  return { load, unload };
+}
 
 export function useProfiles() {
   return useQuery({ queryKey: keys.profiles, queryFn: () => invoke('profiles:list') });

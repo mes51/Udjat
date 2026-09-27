@@ -7,6 +7,7 @@ import type {
   FinishReason,
   Message,
   ModelInfo,
+  ModelStatus,
   Part,
   ServerProfile,
   ToolApprovalDecision,
@@ -93,6 +94,8 @@ export class ChatService {
   private readonly pendingApprovals = new Map<string, (d: ToolApprovalDecision) => void>();
   /** 会話単位で「この会話では常に許可」されたツール名 */
   private readonly conversationAllow = new Map<string, Set<string>>();
+  /** モデル管理に非対応と判明したプロファイル(profileId+baseUrl -> 再確認してよい時刻) */
+  private readonly unsupportedUntil = new Map<string, number>();
 
   constructor(private readonly deps: ChatServiceDeps) {}
 
@@ -304,6 +307,81 @@ export class ChatService {
     );
   }
 
+  /** サーバーのモデル常駐状態(対応しない種別なら supported: false) */
+  async modelStatus(profile: ServerProfile, signal?: AbortSignal): Promise<ModelStatus> {
+    const mgr = getAdapter(profile.kind).models;
+    if (!mgr) return { supported: false, loaded: [], loading: [] };
+    return mgr.status(profile, signal);
+  }
+
+  async loadModel(
+    profile: ServerProfile,
+    model: string,
+    signal?: AbortSignal,
+  ): Promise<ModelStatus> {
+    const mgr = getAdapter(profile.kind).models;
+    if (!mgr) throw new Error('このサーバー種別ではモデルのロードを操作できません');
+    const status = await mgr.status(profile, signal);
+    if (profile.modelManagement.unloadOthers) {
+      for (const other of status.loaded)
+        if (other !== model) await mgr.unload(profile, other, signal);
+    }
+    if (!status.loaded.includes(model)) await mgr.load(profile, model, signal);
+    return mgr.status(profile, signal);
+  }
+
+  async unloadModel(
+    profile: ServerProfile,
+    model: string,
+    signal?: AbortSignal,
+  ): Promise<ModelStatus> {
+    const mgr = getAdapter(profile.kind).models;
+    if (!mgr) throw new Error('このサーバー種別ではモデルのロードを操作できません');
+    await mgr.unload(profile, model, signal);
+    return mgr.status(profile, signal);
+  }
+
+  /**
+   * 送信直前の自動ロード(M10)。プロファイルで autoLoad が有効で、サーバーが対応していて、
+   * 選択中モデルが常駐していなければロードしてから進む。進行は model-load イベントで通知する。
+   */
+  private async ensureModelLoaded(
+    profile: ServerProfile,
+    model: string,
+    emit: (event: ChatEvent) => void,
+    signal: AbortSignal,
+  ): Promise<void> {
+    const mgr = getAdapter(profile.kind).models;
+    if (!mgr || !profile.modelManagement.autoLoad) return;
+    // 非対応と分かったサーバーは、しばらく問い合わせを省く(単一モデル起動の llama.cpp など)
+    const key = `${profile.id}\u0000${profile.baseUrl}`;
+    const until = this.unsupportedUntil.get(key);
+    if (until !== undefined && until > Date.now()) return;
+    let status: ModelStatus;
+    try {
+      status = await mgr.status(profile, signal);
+    } catch {
+      if (signal.aborted)
+        throw signal.reason instanceof Error ? signal.reason : new Error('aborted');
+      this.unsupportedUntil.set(key, Date.now() + 60_000);
+      return;
+    }
+    if (!status.supported) {
+      this.unsupportedUntil.set(key, Date.now() + 60_000);
+      return;
+    }
+    if (status.loaded.includes(model)) return;
+    emit({ type: 'model-load', state: 'loading', model });
+    try {
+      await this.loadModel(profile, model, signal);
+      emit({ type: 'model-load', state: 'done', model });
+    } catch (e) {
+      const message = (e as Error).message;
+      emit({ type: 'model-load', state: 'error', model, message });
+      throw new Error(`モデル ${model} のロードに失敗しました: ${message}`);
+    }
+  }
+
   private requireProfile(id: string | null): ServerProfile {
     const profile = id ? this.deps.profiles.get(id) : null;
     if (!profile) throw new Error('サーバープロファイルが設定されていません');
@@ -429,6 +507,7 @@ export class ChatService {
       if (!conv) throw new Error('会話が見つかりません');
       const model = resolveModel(conv, profile);
       if (!model) throw new Error('モデルが選択されていません');
+      await this.ensureModelLoaded(profile, model, emit, signal);
       const capabilities = await this.capabilitiesFor(profile, model);
       const toolDefs = capabilities.tools
         ? tools.definitionsFor(capabilities, {

@@ -13,6 +13,7 @@ import {
   McpServerStatusSchema,
   MessageSchema,
   ModelInfoSchema,
+  ModelStatusSchema,
   RoleSchema,
   ServerProfileInputSchema,
   ServerProfileSchema,
@@ -95,6 +96,19 @@ export const ipcInvokeSchema = {
   'models:capabilities': {
     input: z.object({ profileId: z.string().min(1), model: z.string().min(1) }),
     output: CapabilitiesSchema,
+  },
+  /** サーバーのモデル常駐状態(M10)。非対応なら supported: false */
+  'models:status': {
+    input: z.object({ profileId: z.string().min(1) }),
+    output: ModelStatusSchema,
+  },
+  'models:load': {
+    input: z.object({ profileId: z.string().min(1), model: z.string().min(1) }),
+    output: ModelStatusSchema,
+  },
+  'models:unload': {
+    input: z.object({ profileId: z.string().min(1), model: z.string().min(1) }),
+    output: ModelStatusSchema,
   },
   /** モデル単位の上書きを保存して、解決後の capability を返す */
   'models:setCapabilities': {

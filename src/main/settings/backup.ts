@@ -37,6 +37,7 @@ export function exportSettings(deps: BackupDeps, opts: { includeSecrets: boolean
     defaultParams: p.defaultParams,
     capabilityOverrides: p.capabilityOverrides,
     modelCapabilityOverrides: p.modelCapabilityOverrides,
+    modelManagement: p.modelManagement,
   }));
   const mcpServers = deps.mcpServers.list().map(({ id: _id, ...rest }) => {
     if (!opts.includeSecrets && rest.transport === 'http') {

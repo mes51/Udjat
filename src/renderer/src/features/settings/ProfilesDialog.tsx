@@ -1,6 +1,7 @@
 import { Plus, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 import {
+  DEFAULT_MODEL_MANAGEMENT,
   SERVER_KIND_LABELS,
   ServerKindSchema,
   type CapabilityOverrides,
@@ -26,8 +27,12 @@ const DEFAULT_URLS: Record<ServerKind, string> = {
   llamacpp: 'http://192.168.1.10:8080',
   vllm: 'http://192.168.1.10:8000',
   lmstudio: 'http://192.168.1.10:1234',
+  unsloth: 'http://192.168.1.10:8888',
   'openai-compatible': 'http://192.168.1.10:8000',
 };
+
+/** モデルのロード/アンロードを Udjat から操作できる種別 */
+const MANAGEABLE_KINDS: ServerKind[] = ['unsloth', 'llamacpp', 'lmstudio'];
 
 const EMPTY: ServerProfileInput = {
   name: '',
@@ -37,6 +42,7 @@ const EMPTY: ServerProfileInput = {
   defaultModel: null,
   defaultParams: {},
   capabilityOverrides: {},
+  modelManagement: DEFAULT_MODEL_MANAGEMENT,
 };
 
 type TriState = '' | 'on' | 'off';
@@ -206,6 +212,44 @@ function ProfileForm({
           </span>
         )}
       </div>
+      {MANAGEABLE_KINDS.includes(form.kind) && (
+        <div className="flex flex-col gap-1">
+          <div className="text-fg-muted text-xs font-medium">モデルのロード / アンロード</div>
+          <label className="flex items-center gap-2 text-xs">
+            <input
+              type="checkbox"
+              checked={(form.modelManagement ?? DEFAULT_MODEL_MANAGEMENT).autoLoad}
+              onChange={(e) =>
+                set('modelManagement', {
+                  ...(form.modelManagement ?? DEFAULT_MODEL_MANAGEMENT),
+                  autoLoad: e.target.checked,
+                })
+              }
+            />
+            送信直前に、選択中のモデルが未ロードなら自動でロードする
+          </label>
+          <label className="flex items-center gap-2 text-xs">
+            <input
+              type="checkbox"
+              checked={(form.modelManagement ?? DEFAULT_MODEL_MANAGEMENT).unloadOthers}
+              onChange={(e) =>
+                set('modelManagement', {
+                  ...(form.modelManagement ?? DEFAULT_MODEL_MANAGEMENT),
+                  unloadOthers: e.target.checked,
+                })
+              }
+            />
+            ロード前に、常駐している他のモデルをアンロードする
+          </label>
+          <p className="text-fg-muted text-[11px]">
+            {form.kind === 'llamacpp'
+              ? 'llama.cpp は router モード(--models-dir / --models-preset で起動)の時だけ対応します。単一モデル起動では何もしません。'
+              : form.kind === 'unsloth'
+                ? 'Unsloth Studio の /v1/load・/v1/unload を使います。API キーで通らない場合は Studio 側の OpenAI auto-switch を有効にしてください。'
+                : 'LM Studio の REST API v1(/api/v1/models/load・unload)を使います。'}
+          </p>
+        </div>
+      )}
       <div>
         <div className="text-fg-muted mb-1 text-xs font-medium">
           capability の上書き(自動推定が外れる時だけ変更)

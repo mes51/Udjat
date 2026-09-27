@@ -124,4 +124,12 @@ export const migrations: readonly Migration[] = [
       ALTER TABLE conversations ADD COLUMN disabled_tools TEXT NOT NULL DEFAULT '[]';
     `,
   },
+  {
+    // M10: モデルの自動ロード/アンロードの設定(プロファイル単位)
+    version: 4,
+    name: 'model-management',
+    up: `
+      ALTER TABLE server_profiles ADD COLUMN model_management TEXT NOT NULL DEFAULT '{}';
+    `,
+  },
 ];

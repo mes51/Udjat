@@ -105,6 +105,7 @@ async function setup() {
     defaultModel: 'm',
     defaultParams: {},
     capabilityOverrides: {},
+    modelManagement: { autoLoad: false, unloadOthers: false },
   });
   return conversations.create({ serverProfileId: p.id, model: null });
 }

@@ -25,6 +25,7 @@ import type { PendingAttachment } from './AttachmentChips';
 import { Composer } from './Composer';
 import { ConversationSettings } from './ConversationSettings';
 import { MessageList } from './MessageList';
+import { ModelResidency } from './ModelResidency';
 
 export function ChatPane({ conversationId }: { conversationId: string }) {
   const qc = useQueryClient();
@@ -270,6 +271,7 @@ export function ChatPane({ conversationId }: { conversationId: string }) {
             )}
             {models.data?.map((m) => (
               <option key={m.id} value={m.id}>
+                {m.loaded === true ? '● ' : m.loaded === false ? '○ ' : ''}
                 {m.name}
               </option>
             ))}
@@ -279,6 +281,11 @@ export function ChatPane({ conversationId }: { conversationId: string }) {
               <Loader2 size={14} className="animate-spin" /> モデル取得中
             </span>
           )}
+          <ModelResidency
+            profileId={c.serverProfileId}
+            model={c.model}
+            conversationId={conversationId}
+          />
           {models.isError && !models.isFetching && (
             <span className="flex min-w-0 items-center gap-1 text-xs text-red-400">
               <span className="truncate" title={String(models.error)}>

@@ -1,4 +1,5 @@
 import type { ServerProfile, ServerProfileInput } from '@shared/schemas';
+import { DEFAULT_MODEL_MANAGEMENT } from '@shared/schemas';
 import { newId } from '@main/util/id';
 import type { Database } from '../client';
 
@@ -12,6 +13,7 @@ interface Row {
   default_params: string;
   capability_overrides: string;
   model_capability_overrides: string;
+  model_management: string;
   created_at: number;
   updated_at: number;
 }
@@ -29,6 +31,10 @@ function fromRow(r: Row): ServerProfile {
     modelCapabilityOverrides: JSON.parse(
       r.model_capability_overrides,
     ) as ServerProfile['modelCapabilityOverrides'],
+    modelManagement: {
+      ...DEFAULT_MODEL_MANAGEMENT,
+      ...(JSON.parse(r.model_management || '{}') as Partial<ServerProfile['modelManagement']>),
+    },
     createdAt: r.created_at,
     updatedAt: r.updated_at,
   };
@@ -59,8 +65,8 @@ export class ServerProfileRepository {
     this.db
       .prepare(
         `INSERT INTO server_profiles
-           (id, name, kind, base_url, api_key, default_model, default_params, capability_overrides, model_capability_overrides, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           (id, name, kind, base_url, api_key, default_model, default_params, capability_overrides, model_capability_overrides, model_management, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         id,
@@ -72,6 +78,7 @@ export class ServerProfileRepository {
         JSON.stringify(input.defaultParams),
         JSON.stringify(input.capabilityOverrides),
         JSON.stringify(input.modelCapabilityOverrides ?? {}),
+        JSON.stringify(input.modelManagement ?? DEFAULT_MODEL_MANAGEMENT),
         now,
         now,
       );
@@ -88,7 +95,7 @@ export class ServerProfileRepository {
     this.db
       .prepare(
         `UPDATE server_profiles SET name = ?, kind = ?, base_url = ?, api_key = ?, default_model = ?,
-           default_params = ?, capability_overrides = ?, model_capability_overrides = ?, updated_at = ? WHERE id = ?`,
+           default_params = ?, capability_overrides = ?, model_capability_overrides = ?, model_management = ?, updated_at = ? WHERE id = ?`,
       )
       .run(
         next.name,
@@ -99,6 +106,7 @@ export class ServerProfileRepository {
         JSON.stringify(next.defaultParams),
         JSON.stringify(next.capabilityOverrides),
         JSON.stringify(next.modelCapabilityOverrides),
+        JSON.stringify(next.modelManagement),
         Date.now(),
         id,
       );

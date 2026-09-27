@@ -3,6 +3,7 @@ import type {
   ChatEvent,
   ChatParams,
   ModelInfo,
+  ModelStatus,
   ServerKind,
   ServerProfile,
   ToolCall,
@@ -50,8 +51,18 @@ export interface ServerProbe {
   models: ModelInfo[];
 }
 
+/** サーバー側のモデル常駐を操作する(対応サーバーのみ)。設計は docs/plan/07 の M10 */
+export interface ModelManager {
+  status(profile: ServerProfile, signal?: AbortSignal): Promise<ModelStatus>;
+  /** ロード完了まで待つ(大きいモデルは分単位)。失敗は ProviderError */
+  load(profile: ServerProfile, model: string, signal?: AbortSignal): Promise<void>;
+  unload(profile: ServerProfile, model: string, signal?: AbortSignal): Promise<void>;
+}
+
 export interface ProviderAdapter {
   readonly kind: ServerKind;
+  /** モデル常駐の操作。無ければこのサーバー種別では扱えない */
+  readonly models?: ModelManager | undefined;
   listModels(profile: ServerProfile, signal?: AbortSignal): Promise<ModelInfo[]>;
   /** モデル単位の追加情報(Ollama /api/show 等)。無ければ null */
   describeModel(

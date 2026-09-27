@@ -53,7 +53,7 @@ function RangeEditor({
 }) {
   const [start, setStart] = useState(range ? clock(range.startMs) : '0:00');
   const [end, setEnd] = useState(
-    range ? clock(range.endMs) : durationMs !== undefined ? clock(durationMs) : ''
+    range ? clock(range.endMs) : durationMs !== undefined ? clock(durationMs) : '',
   );
   const s = parseTimeMs(start);
   const e = parseTimeMs(end);

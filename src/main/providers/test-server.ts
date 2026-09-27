@@ -51,6 +51,7 @@ export async function startMockServer(routes: Record<string, Handler>): Promise<
       defaultParams: {},
       capabilityOverrides: {},
       modelCapabilityOverrides: {},
+      modelManagement: { autoLoad: true, unloadOthers: true },
       createdAt: 0,
       updatedAt: 0,
     }),

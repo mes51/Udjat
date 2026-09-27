@@ -18,6 +18,10 @@ export function subscribeChatEvents(qc: QueryClient): () => void {
         if (t === 'done') setTimeout(() => useStreamStore.getState().clear(ev.messageId), 50);
       });
     }
+    if (t === 'model-load' && ev.event.state !== 'loading') {
+      // 常駐状態が変わったのでヘッダーの表示を取り直す
+      void qc.invalidateQueries({ queryKey: ['models:status'] });
+    }
     if (t === 'run-end') {
       void invalidateConversationView(qc, ev.conversationId);
       // タイトル自動生成は run-end の後に走るので、少し遅らせてもう一度一覧を取り直す

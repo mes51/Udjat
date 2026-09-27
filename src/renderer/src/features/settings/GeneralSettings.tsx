@@ -102,9 +102,7 @@ function NativeVideoSettings() {
   const width = useSetting<number>('video.native.width');
   const fps = useSetting<number>('video.native.fps');
   const save = useSettingMutation();
-  const [form, setForm] = useState<{ maxSeconds: string; width: string; fps: string } | null>(
-    null,
-  );
+  const [form, setForm] = useState<{ maxSeconds: string; width: string; fps: string } | null>(null);
   const loaded = maxSeconds.isFetched && width.isFetched && fps.isFetched;
   const cur = form ?? {
     maxSeconds: String(maxSeconds.data ?? 60),
@@ -117,7 +115,10 @@ function NativeVideoSettings() {
       const v = Number(s);
       return Number.isFinite(v) && v > 0 ? Math.min(max, Math.max(min, v)) : fallback;
     };
-    await save.mutateAsync({ key: 'video.native.maxSeconds', value: n(cur.maxSeconds, 60, 5, 600) });
+    await save.mutateAsync({
+      key: 'video.native.maxSeconds',
+      value: n(cur.maxSeconds, 60, 5, 600),
+    });
     await save.mutateAsync({ key: 'video.native.width', value: n(cur.width, 640, 160, 1920) });
     await save.mutateAsync({ key: 'video.native.fps', value: n(cur.fps, 2, 0.5, 30) });
     setForm(null);

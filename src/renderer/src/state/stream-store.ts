@@ -39,6 +39,8 @@ interface StreamStore {
   toolActivity: Record<string, Record<string, ToolActivity>>;
   /** callId -> 承認待ち */
   approvals: Record<string, PendingApproval>;
+  /** conversationId -> 送信前にロード中のモデル名(M10) */
+  modelLoading: Record<string, string>;
   begin: (handle: { runId: string; conversationId: string; assistantMessageId: string }) => void;
   apply: (ev: ChatRunEvent) => void;
   clear: (messageId: string) => void;
@@ -64,6 +66,7 @@ export const useStreamStore = create<StreamStore>((set) => ({
   running: {},
   toolActivity: {},
   approvals: {},
+  modelLoading: {},
   begin: ({ runId, conversationId, assistantMessageId }) =>
     set((s) => {
       // invoke の往復中にイベントが先に届いていたら、その状態を尊重する
@@ -82,11 +85,19 @@ export const useStreamStore = create<StreamStore>((set) => ({
       const running = { ...s.running };
       if (e.type === 'run-end') {
         delete running[ev.conversationId];
-        return { running };
+        const modelLoading = { ...s.modelLoading };
+        delete modelLoading[ev.conversationId];
+        return { running, modelLoading };
       }
       running[ev.conversationId] = ev.runId;
 
       if (e.type === 'path-changed') return { running };
+      if (e.type === 'model-load') {
+        const modelLoading = { ...s.modelLoading };
+        if (e.state === 'loading') modelLoading[ev.conversationId] = e.model;
+        else delete modelLoading[ev.conversationId];
+        return { running, modelLoading };
+      }
 
       if (e.type === 'tool-approval-request') {
         return {

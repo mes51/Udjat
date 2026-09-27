@@ -10,6 +10,7 @@ export const ServerKindSchema = z.enum([
   'llamacpp',
   'vllm',
   'lmstudio',
+  'unsloth',
   'openai-compatible',
 ]);
 export type ServerKind = z.infer<typeof ServerKindSchema>;
@@ -19,8 +20,28 @@ export const SERVER_KIND_LABELS: Record<ServerKind, string> = {
   llamacpp: 'llama.cpp (llama-server)',
   vllm: 'vLLM',
   lmstudio: 'LM Studio',
+  unsloth: 'Unsloth Studio',
   'openai-compatible': 'OpenAI 互換 (汎用)',
 };
+
+/** サーバー側のモデル常駐を Udjat から操作するか(M10)。対応: Unsloth / llama.cpp router / LM Studio */
+export const ModelManagementSchema = z.object({
+  /** 送信直前に、選択中モデルが未ロードならロードする */
+  autoLoad: z.boolean().default(true),
+  /** ロード前に、常駐している他のモデルをアンロードする(複数常駐できるサーバー向け) */
+  unloadOthers: z.boolean().default(true),
+});
+export type ModelManagement = z.infer<typeof ModelManagementSchema>;
+export const DEFAULT_MODEL_MANAGEMENT: ModelManagement = { autoLoad: true, unloadOthers: true };
+
+/** サーバーのモデル常駐状態 */
+export const ModelStatusSchema = z.object({
+  /** このサーバー(種別・モード)でロード/アンロードを扱えるか */
+  supported: z.boolean(),
+  loaded: z.array(z.string()),
+  loading: z.array(z.string()),
+});
+export type ModelStatus = z.infer<typeof ModelStatusSchema>;
 
 /** 生成パラメータ。未指定(undefined)はサーバー既定に従う。 */
 export const ChatParamsSchema = z.object({
@@ -64,6 +85,7 @@ export const ServerProfileSchema = z.object({
   capabilityOverrides: CapabilityOverridesSchema,
   /** モデル id ごとの上書き(プロファイル全体の上書きより優先) */
   modelCapabilityOverrides: z.record(z.string(), CapabilityOverridesSchema),
+  modelManagement: ModelManagementSchema,
   createdAt: z.number(),
   updatedAt: z.number(),
 });
@@ -79,6 +101,7 @@ export const ServerProfileInputSchema = ServerProfileSchema.pick({
   capabilityOverrides: true,
 }).extend({
   modelCapabilityOverrides: z.record(z.string(), CapabilityOverridesSchema).default({}),
+  modelManagement: ModelManagementSchema.default(DEFAULT_MODEL_MANAGEMENT),
 });
 /** 入力側の型(modelCapabilityOverrides は省略可) */
 export type ServerProfileInput = z.input<typeof ServerProfileInputSchema>;
@@ -89,6 +112,8 @@ export const ModelInfoSchema = z.object({
   contextLength: z.number().optional(),
   /** サーバーが自己申告した capability(Ollama /api/show 等) */
   capabilities: CapabilityOverridesSchema.optional(),
+  /** サーバーに常駐しているか(状態を返すサーバーのみ) */
+  loaded: z.boolean().optional(),
   details: z.record(z.string(), z.unknown()).optional(),
 });
 export type ModelInfo = z.infer<typeof ModelInfoSchema>;
@@ -322,6 +347,13 @@ export const ChatEventSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('error'), message: z.string() }),
   /** ツール承認待ち(renderer は承認カードを出す) */
   z.object({ type: z.literal('tool-approval-request'), call: ToolCallSchema }),
+  /** 送信前のモデルロード(M10)。loading の間はヘッダーに進行を出す */
+  z.object({
+    type: z.literal('model-load'),
+    state: z.enum(['loading', 'done', 'error']),
+    model: z.string(),
+    message: z.string().optional(),
+  }),
   /** ツール実行の開始・終了(UI の進行表示用) */
   z.object({ type: z.literal('tool-start'), call: ToolCallSchema }),
   z.object({

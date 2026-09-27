@@ -4,6 +4,7 @@ import { binariesAvailable, resolveBinaries } from '@main/media/binaries';
 import { exportSettings, importSettings } from '@main/settings/backup';
 import { extname, join } from 'node:path';
 import type { ServerProfile, ServerProfileInput } from '@shared/schemas';
+import { ModelManagementSchema } from '@shared/schemas';
 import { exportFileName, exportJson, exportMarkdown } from '@main/chat/export';
 import type { ChatService } from '@main/chat/service';
 import type { ToolRegistry } from '@main/tools/registry';
@@ -85,6 +86,21 @@ export function registerIpcHandlers(ctx: AppContext): void {
     const p = ctx.profiles.get(profileId);
     if (!p) throw new Error('プロファイルが見つかりません');
     return ctx.chat.capabilitiesFor(p, model);
+  });
+  handleIpc('models:status', async ({ profileId }) => {
+    const p = ctx.profiles.get(profileId);
+    if (!p) throw new Error('プロファイルが見つかりません');
+    return ctx.chat.modelStatus(p);
+  });
+  handleIpc('models:load', async ({ profileId, model }) => {
+    const p = ctx.profiles.get(profileId);
+    if (!p) throw new Error('プロファイルが見つかりません');
+    return ctx.chat.loadModel(p, model);
+  });
+  handleIpc('models:unload', async ({ profileId, model }) => {
+    const p = ctx.profiles.get(profileId);
+    if (!p) throw new Error('プロファイルが見つかりません');
+    return ctx.chat.unloadModel(p, model);
   });
   handleIpc('models:setCapabilities', async ({ profileId, model, overrides }) => {
     const p = ctx.profiles.setModelCapabilities(profileId, model, overrides);
@@ -314,6 +330,7 @@ function tempProfile(input: ServerProfileInput): ServerProfile {
   return {
     ...input,
     modelCapabilityOverrides: input.modelCapabilityOverrides ?? {},
+    modelManagement: ModelManagementSchema.parse(input.modelManagement ?? {}),
     id: 'temp',
     createdAt: 0,
     updatedAt: 0,

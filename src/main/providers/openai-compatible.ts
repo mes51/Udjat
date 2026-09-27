@@ -1,7 +1,8 @@
 import type { ChatEvent, ModelInfo, ServerKind, ServerProfile, ToolCall } from '@shared/schemas';
 import { request, requestJson } from './http';
+import { modelManagerFor } from './model-management';
 import { parseSse } from './stream-parsers';
-import type { CanonicalMessage, ChatRequest, ProviderAdapter } from './types';
+import type { CanonicalMessage, ChatRequest, ModelManager, ProviderAdapter } from './types';
 
 /**
  * OpenAI 互換 API(/v1/chat/completions)アダプタ。
@@ -119,11 +120,22 @@ function buildBody(kind: ServerKind, req: ChatRequest): Record<string, unknown> 
 }
 
 export class OpenAICompatibleAdapter implements ProviderAdapter {
-  constructor(readonly kind: ServerKind) {}
+  readonly models: ModelManager | undefined;
+
+  constructor(readonly kind: ServerKind) {
+    this.models = modelManagerFor(kind);
+  }
 
   async listModels(profile: ServerProfile, signal?: AbortSignal): Promise<ModelInfo[]> {
     const res = await requestJson<{
-      data?: { id: string; meta?: { n_ctx_train?: number; n_params?: number } }[];
+      data?: {
+        id: string;
+        meta?: { n_ctx_train?: number; n_params?: number };
+        /** Unsloth: 常駐しているか */
+        loaded?: boolean;
+        /** llama.cpp router: "loaded" | "loading" | "unloaded"(または { value }) */
+        status?: unknown;
+      }[];
       /** llama.cpp は Ollama 互換の models[] も返し、capabilities(multimodal 等)が入る */
       models?: { name?: string; model?: string; capabilities?: string[] }[];
     }>(profile, '/v1/models', { signal, timeoutMs: 5_000 });
@@ -137,6 +149,14 @@ export class OpenAICompatibleAdapter implements ProviderAdapter {
       const info: ModelInfo = { id: m.id, name: m.id.split(/[\\/]/).pop() || m.id };
       if (m.meta?.n_ctx_train) info.contextLength = m.meta.n_ctx_train;
       if (m.meta) info.details = m.meta;
+      if (typeof m.loaded === 'boolean') info.loaded = m.loaded;
+      const st =
+        typeof m.status === 'string'
+          ? m.status
+          : m.status && typeof m.status === 'object'
+            ? (m.status as { value?: unknown }).value
+            : undefined;
+      if (typeof st === 'string') info.loaded = st === 'loaded';
       const caps = reported.get(m.id);
       if (caps) {
         info.capabilities = {

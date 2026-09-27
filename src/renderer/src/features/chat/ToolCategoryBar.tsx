@@ -37,7 +37,8 @@ export function ToolCategoryBar({
   if (!toolsSupported) {
     return (
       <div className="text-fg-muted flex items-center gap-1 px-1 pb-1.5 text-[11px]">
-        <Wrench size={11} /> このモデルはツール呼び出し非対応と推定されているため、ツールは送りません
+        <Wrench size={11} />{' '}
+        このモデルはツール呼び出し非対応と推定されているため、ツールは送りません
       </div>
     );
   }
