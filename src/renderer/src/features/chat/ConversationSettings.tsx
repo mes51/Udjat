@@ -5,6 +5,7 @@ import type { CapabilityOverrides, ChatParams, Conversation } from '@shared/sche
 import { Button } from '@renderer/components/ui/button';
 import { Field, Input, Label, Select, Textarea } from '@renderer/components/ui/input';
 import { Range } from '@renderer/components/ui/range';
+import { SectionTitle } from '@renderer/components/ui/section';
 import { invoke } from '@renderer/lib/ipc';
 import {
   keys,
@@ -128,22 +129,6 @@ function ParamSlider({
         <span>{isDefault ? `既定 (目安 ${field.slider.default})` : ''}</span>
         <span>{field.slider.max}</span>
       </div>
-    </div>
-  );
-}
-
-/** ドロワー内の見出し */
-function SectionTitle({
-  children,
-  action,
-}: {
-  children: React.ReactNode;
-  action?: React.ReactNode;
-}) {
-  return (
-    <div className="mb-2 flex items-center justify-between">
-      <h4 className="text-fg-muted text-xs font-medium tracking-wide">{children}</h4>
-      {action}
     </div>
   );
 }

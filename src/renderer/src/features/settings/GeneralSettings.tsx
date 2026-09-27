@@ -4,9 +4,15 @@ import type { AppInfo } from '@shared/ipc-schema';
 import { Button } from '@renderer/components/ui/button';
 import { useConfirm } from '@renderer/components/ui/confirm';
 import { Field, Input, Select } from '@renderer/components/ui/input';
+import { Section, SectionTitle } from '@renderer/components/ui/section';
 import { invoke } from '@renderer/lib/ipc';
 import { useSetting, useSettingMutation } from '@renderer/lib/queries';
 import { setTheme, type ThemeSetting } from '@renderer/lib/theme';
+
+/**
+ * 一般タブ。値はすべて「変更した時 / フォーカスを外した時」に保存する(保存ボタンは置かない)。
+ * ffmpeg のパスだけは再起動後に反映される旨をヒントに書く。
+ */
 
 function ThemeSelect() {
   const theme = useSetting<ThemeSetting>('ui.theme');
@@ -17,6 +23,7 @@ function ThemeSelect() {
       <Select
         value={value}
         disabled={!theme.isFetched}
+        className="max-w-xs"
         onChange={(e) => {
           const v = e.target.value as ThemeSetting;
           setTheme(v);
@@ -48,122 +55,123 @@ function AutoTitleSetting() {
   );
 }
 
+/** フォーカスを外した時に保存するテキスト入力(設定キー 1 つに対応) */
+function SettingInput({
+  settingKey,
+  label,
+  hint,
+  placeholder,
+  type,
+  parse,
+  format,
+  className,
+  onSaved,
+}: {
+  settingKey: string;
+  label: string;
+  hint?: string | undefined;
+  placeholder?: string;
+  type?: 'text' | 'number';
+  /** 入力文字列を保存する値に変換する。null を返すと設定を消す */
+  parse: (text: string) => unknown;
+  /** 保存されている値を入力文字列にする */
+  format: (value: unknown) => string;
+  className?: string;
+  onSaved?: () => void;
+}) {
+  const setting = useSetting<unknown>(settingKey);
+  const save = useSettingMutation();
+  const [text, setText] = useState<string | null>(null);
+  const shown = text ?? format(setting.data);
+  const commit = () => {
+    if (text === null) return;
+    const next = parse(text);
+    setText(null);
+    if (format(next) === format(setting.data)) return;
+    save.mutate({ key: settingKey, value: next }, onSaved ? { onSuccess: () => onSaved() } : {});
+  };
+  return (
+    <Field label={label} hint={hint}>
+      <Input
+        type={type ?? 'text'}
+        value={shown}
+        placeholder={placeholder}
+        disabled={!setting.isFetched}
+        className={className}
+        onChange={(e) => setText(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => e.key === 'Enter' && commit()}
+      />
+    </Field>
+  );
+}
+
 function FfmpegSettings() {
   const bins = useQuery({ queryKey: ['media:binaries'], queryFn: () => invoke('media:binaries') });
-  const ffmpegPath = useSetting<string>('ffmpeg.path');
-  const ffprobePath = useSetting<string>('ffprobe.path');
-  const save = useSettingMutation();
   const qc = useQueryClient();
-  const [form, setForm] = useState<{ ffmpeg: string; ffprobe: string } | null>(null);
-  const cur = form ?? { ffmpeg: ffmpegPath.data ?? '', ffprobe: ffprobePath.data ?? '' };
-  const persist = async () => {
-    await save.mutateAsync({ key: 'ffmpeg.path', value: cur.ffmpeg.trim() || null });
-    await save.mutateAsync({ key: 'ffprobe.path', value: cur.ffprobe.trim() || null });
-    setForm(null);
-    void qc.invalidateQueries({ queryKey: ['media:binaries'] });
-  };
   const status = (b: { path: string; available: boolean; custom: boolean } | undefined) =>
     !b
       ? '…'
       : `${b.available ? '使用可' : '見つかりません'} · ${b.custom ? '手動指定' : '同梱'}: ${b.path}`;
+  const refresh = () => void qc.invalidateQueries({ queryKey: ['media:binaries'] });
+  const pathParse = (t: string) => (t.trim() === '' ? null : t.trim());
+  const pathFormat = (v: unknown) => (typeof v === 'string' ? v : '');
   return (
-    <div className="flex flex-col gap-2">
-      <Field label="ffmpeg のパス(空なら同梱版)" hint={status(bins.data?.ffmpeg)}>
-        <Input
-          value={cur.ffmpeg}
-          onChange={(e) => setForm({ ...cur, ffmpeg: e.target.value })}
-          placeholder="C:\\tools\\ffmpeg\\bin\\ffmpeg.exe"
-        />
-      </Field>
-      <Field label="ffprobe のパス(空なら同梱版)" hint={status(bins.data?.ffprobe)}>
-        <Input
-          value={cur.ffprobe}
-          onChange={(e) => setForm({ ...cur, ffprobe: e.target.value })}
-          placeholder="C:\\tools\\ffmpeg\\bin\\ffprobe.exe"
-        />
-      </Field>
-      <div className="flex items-center gap-2">
-        <Button
-          variant="secondary"
-          size="sm"
-          disabled={form === null || save.isPending}
-          onClick={() => void persist()}
-        >
-          保存(再起動後に反映)
-        </Button>
-      </div>
+    <div className="flex max-w-2xl flex-col gap-3">
+      <SettingInput
+        settingKey="ffmpeg.path"
+        label="ffmpeg のパス(空なら同梱版)"
+        hint={`${status(bins.data?.ffmpeg)}。変更は再起動後に反映`}
+        placeholder="C:\\tools\\ffmpeg\\bin\\ffmpeg.exe"
+        parse={pathParse}
+        format={pathFormat}
+        onSaved={refresh}
+      />
+      <SettingInput
+        settingKey="ffprobe.path"
+        label="ffprobe のパス(空なら同梱版)"
+        hint={`${status(bins.data?.ffprobe)}。変更は再起動後に反映`}
+        placeholder="C:\\tools\\ffmpeg\\bin\\ffprobe.exe"
+        parse={pathParse}
+        format={pathFormat}
+        onSaved={refresh}
+      />
     </div>
   );
 }
 
 /** ネイティブ動画入力(llama.cpp / vLLM に動画をそのまま送る時)のクリップ設定 */
 function NativeVideoSettings() {
-  const maxSeconds = useSetting<number>('video.native.maxSeconds');
-  const width = useSetting<number>('video.native.width');
-  const fps = useSetting<number>('video.native.fps');
-  const save = useSettingMutation();
-  const [form, setForm] = useState<{ maxSeconds: string; width: string; fps: string } | null>(null);
-  const loaded = maxSeconds.isFetched && width.isFetched && fps.isFetched;
-  const cur = form ?? {
-    maxSeconds: String(maxSeconds.data ?? 60),
-    width: String(width.data ?? 640),
-    fps: String(fps.data ?? 2),
-  };
-  if (!loaded) return <p className="text-fg-muted text-xs">読み込み中…</p>;
-  const persist = async () => {
-    const n = (s: string, fallback: number, min: number, max: number) => {
-      const v = Number(s);
+  const numeric = (fallback: number, min: number, max: number) => ({
+    parse: (t: string) => {
+      const v = Number(t);
       return Number.isFinite(v) && v > 0 ? Math.min(max, Math.max(min, v)) : fallback;
-    };
-    await save.mutateAsync({
-      key: 'video.native.maxSeconds',
-      value: n(cur.maxSeconds, 60, 5, 600),
-    });
-    await save.mutateAsync({ key: 'video.native.width', value: n(cur.width, 640, 160, 1920) });
-    await save.mutateAsync({ key: 'video.native.fps', value: n(cur.fps, 2, 0.5, 30) });
-    setForm(null);
-  };
+    },
+    format: (v: unknown) => String(typeof v === 'number' ? v : fallback),
+  });
   return (
-    <div className="flex flex-col gap-2">
-      <p className="text-fg-muted text-xs">
-        動画をそのまま送れるモデルには、縮小・低 fps
-        化したクリップを渡します。添付チップの「範囲」で区間を指定でき、指定が無ければ先頭からです。長い動画の他の部分はモデルが
-        video_clip ツールで読み込みます(1 回の上限もこの最大秒数)。
-      </p>
-      <div className="grid grid-cols-3 gap-2">
-        <Field label="最大秒数" hint="5〜600">
-          <Input
-            type="number"
-            value={cur.maxSeconds}
-            onChange={(e) => setForm({ ...cur, maxSeconds: e.target.value })}
-          />
-        </Field>
-        <Field label="幅 (px)" hint="160〜1920">
-          <Input
-            type="number"
-            value={cur.width}
-            onChange={(e) => setForm({ ...cur, width: e.target.value })}
-          />
-        </Field>
-        <Field label="fps" hint="0.5〜30">
-          <Input
-            type="number"
-            step="0.5"
-            value={cur.fps}
-            onChange={(e) => setForm({ ...cur, fps: e.target.value })}
-          />
-        </Field>
-      </div>
-      <div>
-        <Button
-          variant="secondary"
-          size="sm"
-          disabled={form === null || save.isPending}
-          onClick={() => void persist()}
-        >
-          保存
-        </Button>
-      </div>
+    <div className="grid max-w-2xl grid-cols-3 gap-3">
+      <SettingInput
+        settingKey="video.native.maxSeconds"
+        label="最大秒数"
+        hint="5〜600"
+        type="number"
+        {...numeric(60, 5, 600)}
+      />
+      <SettingInput
+        settingKey="video.native.width"
+        label="幅 (px)"
+        hint="160〜1920"
+        type="number"
+        {...numeric(640, 160, 1920)}
+      />
+      <SettingInput
+        settingKey="video.native.fps"
+        label="fps"
+        hint="0.5〜30"
+        type="number"
+        {...numeric(2, 0.5, 30)}
+      />
     </div>
   );
 }
@@ -203,10 +211,6 @@ function BackupSettings() {
   });
   return (
     <div className="flex flex-col gap-2">
-      <p className="text-fg-muted text-xs">
-        サーバープロファイル、MCP サーバー、ツールのポリシー、各種設定を JSON
-        に書き出します。会話と添付は含みません(data/ フォルダごとコピーしてください)。
-      </p>
       <div className="flex flex-wrap items-center gap-2">
         <Button variant="secondary" size="sm" onClick={() => void exportAll(false)}>
           書き出す(API キーを除く)
@@ -235,7 +239,7 @@ function AppInfoLine() {
   }, []);
   if (!info) return null;
   return (
-    <div className="text-fg-muted/70 text-[11px]">
+    <div className="text-fg-subtle text-[11px]">
       Udjat {info.version} · データ: {info.dataDirMode} ({info.dataDir}) · Electron{' '}
       {info.versions.electron} · SQLite {info.versions.sqlite}
     </div>
@@ -244,27 +248,33 @@ function AppInfoLine() {
 
 export function GeneralSettings() {
   return (
-    <div className="flex flex-col gap-6">
-      <section className="flex flex-col gap-3">
-        <h3 className="text-sm font-medium">表示</h3>
+    <div className="flex flex-col gap-7">
+      <Section className="gap-3">
+        <SectionTitle description="変更はすぐ保存されます">表示</SectionTitle>
         <ThemeSelect />
         <AutoTitleSetting />
-      </section>
-      <section>
-        <h3 className="mb-2 text-sm font-medium">ffmpeg</h3>
+      </Section>
+      <Section>
+        <SectionTitle description="空なら同梱の ffmpeg / ffprobe を使います。フォーカスを外すと保存され、再起動後に反映されます">
+          ffmpeg
+        </SectionTitle>
         <FfmpegSettings />
-      </section>
-      <section>
-        <h3 className="mb-2 text-sm font-medium">動画のネイティブ入力</h3>
+      </Section>
+      <Section>
+        <SectionTitle description="動画をそのまま送れるモデルには縮小・低 fps 化したクリップを渡します。添付チップの「範囲」で区間を指定でき、指定が無ければ先頭からです。長い動画の他の部分はモデルが video_clip ツールで読み込みます(1 回の上限もこの最大秒数)">
+          動画のネイティブ入力
+        </SectionTitle>
         <NativeVideoSettings />
-      </section>
-      <section>
-        <h3 className="mb-2 text-sm font-medium">設定のバックアップ</h3>
+      </Section>
+      <Section>
+        <SectionTitle description="サーバープロファイル、MCP サーバー、ツールのポリシー、各種設定を JSON に書き出します。会話と添付は含みません(data/ フォルダごとコピーしてください)">
+          設定のバックアップ
+        </SectionTitle>
         <BackupSettings />
-      </section>
-      <section>
-        <h3 className="mb-2 text-sm font-medium">キーボードショートカット</h3>
-        <ul className="text-fg-muted grid grid-cols-2 gap-x-6 gap-y-1 text-xs">
+      </Section>
+      <Section>
+        <SectionTitle>キーボードショートカット</SectionTitle>
+        <ul className="text-fg-muted grid max-w-md grid-cols-2 gap-x-6 gap-y-1.5 text-xs">
           <li>
             <kbd>Ctrl+N</kbd> 新しい会話
           </li>
@@ -277,11 +287,11 @@ export function GeneralSettings() {
           <li>
             <kbd>Esc</kbd> 生成を停止
           </li>
-          <li>
+          <li className="col-span-2">
             <kbd>Enter</kbd> 送信 / <kbd>Shift+Enter</kbd> 改行
           </li>
         </ul>
-      </section>
+      </Section>
       <AppInfoLine />
     </div>
   );

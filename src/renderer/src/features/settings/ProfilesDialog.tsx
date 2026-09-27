@@ -1,5 +1,5 @@
-import { Plus, Trash2 } from 'lucide-react';
-import { useState } from 'react';
+import { Plug, Plus, Server, SlidersHorizontal, Trash2, Wrench } from 'lucide-react';
+import { useState, type ReactNode } from 'react';
 import {
   DEFAULT_MODEL_MANAGEMENT,
   SERVER_KIND_LABELS,
@@ -14,9 +14,10 @@ import { Button } from '@renderer/components/ui/button';
 import { useConfirm } from '@renderer/components/ui/confirm';
 import { Dialog } from '@renderer/components/ui/dialog';
 import { Field, Input, Select } from '@renderer/components/ui/input';
+import { Section, SectionTitle } from '@renderer/components/ui/section';
 import { invoke } from '@renderer/lib/ipc';
 import { useProfileMutations, useProfiles } from '@renderer/lib/queries';
-import { cn } from '@renderer/lib/utils';
+import { cn, modelDisplayName } from '@renderer/lib/utils';
 import { useUiStore } from '@renderer/state/ui-store';
 import { GeneralSettings } from './GeneralSettings';
 import { McpSettings } from './McpSettings';
@@ -117,143 +118,144 @@ function ProfileForm({
 
   const busy = create.isPending || update.isPending;
   const err = create.error ?? update.error ?? remove.error;
+  const mm = form.modelManagement ?? DEFAULT_MODEL_MANAGEMENT;
 
   return (
-    <div className="flex flex-col gap-3">
-      <div className="grid grid-cols-2 gap-3">
-        <Field label="名前">
-          <Input
-            value={form.name}
-            onChange={(e) => set('name', e.target.value)}
-            placeholder="例: 自宅サーバー"
-          />
-        </Field>
-        <Field label="種別">
-          <Select
-            value={form.kind}
-            onChange={(e) => {
-              const kind = ServerKindSchema.parse(e.target.value);
-              set('kind', kind);
-              if (!initial && Object.values(DEFAULT_URLS).includes(form.baseUrl))
-                set('baseUrl', DEFAULT_URLS[kind]);
-            }}
-          >
-            {ServerKindSchema.options.map((k) => (
-              <option key={k} value={k}>
-                {SERVER_KIND_LABELS[k]}
-              </option>
-            ))}
-          </Select>
-        </Field>
-      </div>
-      <Field label="Base URL" hint="例: http://192.168.1.10:11434 (末尾の /v1 は不要)">
-        <Input value={form.baseUrl} onChange={(e) => set('baseUrl', e.target.value)} />
-      </Field>
-      <div className="grid grid-cols-2 gap-3">
-        <Field label="API キー (任意)">
-          <Input
-            type="password"
-            value={form.apiKey ?? ''}
-            onChange={(e) => set('apiKey', e.target.value === '' ? null : e.target.value)}
-            autoComplete="off"
-          />
-        </Field>
-        <Field
-          label="既定のコンテキスト長 (任意)"
-          hint="Ollama の num_ctx。既定 4096 は短いので明示推奨"
-        >
-          <Input
-            type="number"
-            step={1024}
-            value={ctx}
-            onChange={(e) => setCtx(e.target.value)}
-            placeholder="例: 16384"
-          />
-        </Field>
-      </div>
-      <div className="flex items-end gap-2">
-        <Field label="既定モデル">
-          <div className="flex gap-2">
+    <div className="flex flex-col gap-6">
+      <Section className="gap-3">
+        <SectionTitle>接続</SectionTitle>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="名前">
             <Input
-              list="model-candidates"
-              value={form.defaultModel ?? ''}
-              onChange={(e) => set('defaultModel', e.target.value === '' ? null : e.target.value)}
-              placeholder="接続テストで取得、または手入力"
-              className="w-80"
+              value={form.name}
+              onChange={(e) => set('name', e.target.value)}
+              placeholder="例: 自宅サーバー"
             />
-            <datalist id="model-candidates">
-              {models.map((m) => (
-                <option key={m.id} value={m.id}>
-                  {m.name}
+          </Field>
+          <Field label="種別">
+            <Select
+              value={form.kind}
+              onChange={(e) => {
+                const kind = ServerKindSchema.parse(e.target.value);
+                set('kind', kind);
+                if (!initial && Object.values(DEFAULT_URLS).includes(form.baseUrl))
+                  set('baseUrl', DEFAULT_URLS[kind]);
+              }}
+            >
+              {ServerKindSchema.options.map((k) => (
+                <option key={k} value={k}>
+                  {SERVER_KIND_LABELS[k]}
                 </option>
               ))}
-            </datalist>
-          </div>
-        </Field>
-        <Button
-          variant="secondary"
-          onClick={() => void runTest()}
-          disabled={test.state === 'running'}
-        >
-          接続テスト
-        </Button>
-        {test.state !== 'idle' && (
-          <span
-            className={cn(
-              'pb-1.5 text-xs whitespace-pre-line',
-              test.state === 'ok'
-                ? 'text-success'
-                : test.state === 'ng'
-                  ? 'text-danger'
-                  : 'text-fg-muted',
-            )}
+            </Select>
+          </Field>
+        </div>
+        <div className="grid grid-cols-[3fr_2fr] gap-3">
+          <Field label="Base URL" hint="例: http://192.168.1.10:11434 (末尾の /v1 は不要)">
+            <Input value={form.baseUrl} onChange={(e) => set('baseUrl', e.target.value)} />
+          </Field>
+          <Field label="API キー (任意)">
+            <Input
+              type="password"
+              value={form.apiKey ?? ''}
+              onChange={(e) => set('apiKey', e.target.value === '' ? null : e.target.value)}
+              autoComplete="off"
+            />
+          </Field>
+        </div>
+      </Section>
+
+      <Section className="gap-3">
+        <SectionTitle>モデル</SectionTitle>
+        <div className="flex items-end gap-2">
+          <Field label="既定モデル">
+            <div className="flex gap-2">
+              <Input
+                list="model-candidates"
+                value={form.defaultModel ?? ''}
+                onChange={(e) => set('defaultModel', e.target.value === '' ? null : e.target.value)}
+                placeholder="接続テストで取得、または手入力"
+                className="w-80"
+              />
+              <datalist id="model-candidates">
+                {models.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.name}
+                  </option>
+                ))}
+              </datalist>
+            </div>
+          </Field>
+          <Button
+            variant="secondary"
+            onClick={() => void runTest()}
+            disabled={test.state === 'running'}
           >
-            {test.message}
-          </span>
+            接続テスト
+          </Button>
+          {test.state !== 'idle' && (
+            <span
+              className={cn(
+                'pb-1.5 text-xs whitespace-pre-line',
+                test.state === 'ok'
+                  ? 'text-success'
+                  : test.state === 'ng'
+                    ? 'text-danger'
+                    : 'text-fg-muted',
+              )}
+            >
+              {test.message}
+            </span>
+          )}
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <Field
+            label="既定のコンテキスト長 (任意)"
+            hint="Ollama の num_ctx。既定 4096 は短いので明示推奨"
+          >
+            <Input
+              type="number"
+              step={1024}
+              value={ctx}
+              onChange={(e) => setCtx(e.target.value)}
+              placeholder="例: 16384"
+            />
+          </Field>
+        </div>
+        {MANAGEABLE_KINDS.includes(form.kind) && (
+          <div className="border-border bg-surface-2/60 flex flex-col gap-1.5 rounded-md border px-3 py-2.5">
+            <div className="text-xs font-medium">モデルのロード / アンロード</div>
+            <label className="flex items-center gap-2 text-xs">
+              <input
+                type="checkbox"
+                checked={mm.autoLoad}
+                onChange={(e) => set('modelManagement', { ...mm, autoLoad: e.target.checked })}
+              />
+              送信直前に、選択中のモデルが未ロードなら自動でロードする
+            </label>
+            <label className="flex items-center gap-2 text-xs">
+              <input
+                type="checkbox"
+                checked={mm.unloadOthers}
+                onChange={(e) => set('modelManagement', { ...mm, unloadOthers: e.target.checked })}
+              />
+              ロード前に、常駐している他のモデルをアンロードする
+            </label>
+            <p className="text-fg-subtle text-[11px]">
+              {form.kind === 'llamacpp'
+                ? 'llama.cpp は router モード(--models-dir / --models-preset で起動)の時だけ対応します。単一モデル起動では何もしません。'
+                : form.kind === 'unsloth'
+                  ? 'Unsloth Studio の /v1/load・/v1/unload を使います。'
+                  : 'LM Studio の REST API v1(/api/v1/models/load・unload)を使います。'}
+            </p>
+          </div>
         )}
-      </div>
-      {MANAGEABLE_KINDS.includes(form.kind) && (
-        <div className="flex flex-col gap-1">
-          <div className="text-fg-muted text-xs font-medium">モデルのロード / アンロード</div>
-          <label className="flex items-center gap-2 text-xs">
-            <input
-              type="checkbox"
-              checked={(form.modelManagement ?? DEFAULT_MODEL_MANAGEMENT).autoLoad}
-              onChange={(e) =>
-                set('modelManagement', {
-                  ...(form.modelManagement ?? DEFAULT_MODEL_MANAGEMENT),
-                  autoLoad: e.target.checked,
-                })
-              }
-            />
-            送信直前に、選択中のモデルが未ロードなら自動でロードする
-          </label>
-          <label className="flex items-center gap-2 text-xs">
-            <input
-              type="checkbox"
-              checked={(form.modelManagement ?? DEFAULT_MODEL_MANAGEMENT).unloadOthers}
-              onChange={(e) =>
-                set('modelManagement', {
-                  ...(form.modelManagement ?? DEFAULT_MODEL_MANAGEMENT),
-                  unloadOthers: e.target.checked,
-                })
-              }
-            />
-            ロード前に、常駐している他のモデルをアンロードする
-          </label>
-          <p className="text-fg-muted text-[11px]">
-            {form.kind === 'llamacpp'
-              ? 'llama.cpp は router モード(--models-dir / --models-preset で起動)の時だけ対応します。単一モデル起動では何もしません。'
-              : form.kind === 'unsloth'
-                ? 'Unsloth Studio の /v1/load・/v1/unload を使います。API キーで通らない場合は Studio 側の OpenAI auto-switch を有効にしてください。'
-                : 'LM Studio の REST API v1(/api/v1/models/load・unload)を使います。'}
-          </p>
-        </div>
-      )}
-      <div>
-        <div className="text-fg-muted mb-1 text-xs font-medium">
-          capability の上書き(自動推定が外れる時だけ変更)
-        </div>
+      </Section>
+
+      <Section className="gap-2">
+        <SectionTitle description="自動推定が外れる時だけ変更。モデル単位の上書きは会話の設定パネルで">
+          capability の上書き
+        </SectionTitle>
         <div className="grid grid-cols-4 gap-2">
           {OVERRIDE_KEYS.map(({ key, label }) => (
             <Field key={key} label={label}>
@@ -268,9 +270,10 @@ function ProfileForm({
             </Field>
           ))}
         </div>
-      </div>
-      {err && <p className="text-xs text-danger">{String(err)}</p>}
-      <div className="flex justify-between pt-2">
+      </Section>
+
+      {err && <p className="text-danger text-xs">{String(err)}</p>}
+      <div className="border-border flex justify-between border-t pt-4">
         {initial ? (
           <Button
             variant="danger"
@@ -296,60 +299,18 @@ function ProfileForm({
   );
 }
 
-export function ProfilesDialog() {
-  const open = useUiStore((s) => s.profilesDialogOpen);
-  const setOpen = useUiStore((s) => s.setProfilesDialogOpen);
+/** サーバータブ: 左に一覧、右にフォーム */
+function ServersTab() {
   const profiles = useProfiles();
   const [selectedId, setSelectedId] = useState<string | 'new' | null>(null);
-
-  const [tab, setTab] = useState<'servers' | 'tools' | 'mcp' | 'general'>('servers');
-
   // 未選択なら先頭のプロファイル、無ければ新規フォーム
   const effectiveId: string | 'new' = selectedId ?? profiles.data?.[0]?.id ?? 'new';
   const selected =
     effectiveId === 'new' ? null : (profiles.data?.find((p) => p.id === effectiveId) ?? null);
-
   return (
-    <Dialog
-      open={open}
-      onOpenChange={setOpen}
-      title="設定"
-      description={
-        {
-          servers: '接続先の LLM サーバーを登録します',
-          general: '表示、ffmpeg、設定のバックアップ',
-          tools: 'ツールの承認ポリシーと Web 検索の設定',
-          mcp: 'MCP サーバーの登録と接続',
-        }[tab]
-      }
-    >
-      <div className="border-border mb-4 flex gap-1 border-b">
-        {(
-          [
-            ['servers', 'サーバー'],
-            ['tools', 'ツール'],
-            ['mcp', 'MCP'],
-            ['general', '一般'],
-          ] as const
-        ).map(([id, label]) => (
-          <button
-            key={id}
-            type="button"
-            onClick={() => setTab(id)}
-            className={cn(
-              'text-fg-muted hover:text-fg -mb-px border-b-2 border-transparent px-3 py-1.5 text-sm',
-              tab === id && 'border-accent text-fg',
-            )}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
-      {tab === 'tools' && <ToolsSettings />}
-      {tab === 'mcp' && <McpSettings />}
-      {tab === 'general' && <GeneralSettings />}
-      <div className={cn('flex gap-4', tab !== 'servers' && 'hidden')}>
-        <div className="w-52 shrink-0">
+    <div className="flex gap-5">
+      <div className="w-52 shrink-0">
+        <div className="flex flex-col gap-0.5">
           {profiles.data?.map((p) => (
             <button
               key={p.id}
@@ -361,26 +322,97 @@ export function ProfilesDialog() {
               )}
             >
               <div className="truncate">{p.name}</div>
-              <div className="text-fg-muted truncate text-[11px]">{SERVER_KIND_LABELS[p.kind]}</div>
+              <div className="text-fg-subtle truncate text-[11px]">
+                {SERVER_KIND_LABELS[p.kind]}
+                {p.defaultModel ? ` · ${modelDisplayName(p.defaultModel)}` : ''}
+              </div>
             </button>
           ))}
-          <Button
-            variant="ghost"
-            className="mt-1 w-full justify-start"
-            onClick={() => setSelectedId('new')}
-          >
-            <Plus size={14} /> 追加
-          </Button>
         </div>
-        <div className="border-border min-w-0 flex-1 border-l pl-4">
-          <ProfileForm
-            key={selected?.id ?? 'new'}
-            initial={selected}
-            onSaved={() => setSelectedId(null)}
-            onDeleted={() => setSelectedId('new')}
-          />
-        </div>
+        <Button
+          variant="ghost"
+          className="mt-1 w-full justify-start"
+          onClick={() => setSelectedId('new')}
+        >
+          <Plus size={14} /> 追加
+        </Button>
       </div>
+      <div className="border-border min-w-0 flex-1 border-l pl-5">
+        <ProfileForm
+          key={selected?.id ?? 'new'}
+          initial={selected}
+          onSaved={() => setSelectedId(null)}
+          onDeleted={() => setSelectedId('new')}
+        />
+      </div>
+    </div>
+  );
+}
+
+type Tab = 'servers' | 'tools' | 'mcp' | 'general';
+const TABS: { id: Tab; label: string; description: string; icon: ReactNode }[] = [
+  {
+    id: 'servers',
+    label: 'サーバー',
+    description: '接続先の LLM サーバー',
+    icon: <Server size={15} />,
+  },
+  {
+    id: 'tools',
+    label: 'ツール',
+    description: '承認ポリシーと Web 検索',
+    icon: <Wrench size={15} />,
+  },
+  { id: 'mcp', label: 'MCP', description: 'MCP サーバーの登録と接続', icon: <Plug size={15} /> },
+  {
+    id: 'general',
+    label: '一般',
+    description: '表示、ffmpeg、動画、バックアップ',
+    icon: <SlidersHorizontal size={15} />,
+  },
+];
+
+export function ProfilesDialog() {
+  const open = useUiStore((s) => s.profilesDialogOpen);
+  const setOpen = useUiStore((s) => s.setProfilesDialogOpen);
+  const [tab, setTab] = useState<Tab>('servers');
+  const current = TABS.find((t) => t.id === tab) ?? TABS[0]!;
+
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={setOpen}
+      title="設定"
+      aside={
+        <div className="flex flex-col gap-0.5">
+          {TABS.map((t) => (
+            <button
+              key={t.id}
+              type="button"
+              onClick={() => setTab(t.id)}
+              className={cn(
+                'text-fg-muted hover:bg-surface-3 hover:text-fg flex items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-sm transition-colors',
+                tab === t.id && 'bg-accent-soft text-fg',
+              )}
+            >
+              {t.icon}
+              {t.label}
+            </button>
+          ))}
+        </div>
+      }
+    >
+      <div className="mb-4">
+        <h3 className="text-base font-semibold">{current.label}</h3>
+        <p className="text-fg-muted text-xs">{current.description}</p>
+      </div>
+      {/* サーバータブは選択状態を保つため、非表示でもマウントしたままにする */}
+      <div className={cn(tab !== 'servers' && 'hidden')}>
+        <ServersTab />
+      </div>
+      {tab === 'tools' && <ToolsSettings />}
+      {tab === 'mcp' && <McpSettings />}
+      {tab === 'general' && <GeneralSettings />}
     </Dialog>
   );
 }

@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Loader2, Plug, PlugZap, Plus, Trash2 } from 'lucide-react';
+import { Copy, FileJson, Loader2, Plug, PlugZap, Plus, Trash2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import type { McpServer, McpServerInput, McpServerStatus } from '@shared/schemas';
 import { Button } from '@renderer/components/ui/button';
@@ -278,7 +278,8 @@ function ServerForm({
   );
 }
 
-function ImportExport() {
+/** mcpServers JSON の取り込み。一覧の「JSON から取り込む」を押した時だけ右側に出す */
+function ImportPanel({ onDone }: { onDone: () => void }) {
   const qc = useQueryClient();
   const [json, setJson] = useState('');
   const [msg, setMsg] = useState<string | null>(null);
@@ -288,16 +289,12 @@ function ImportExport() {
       setMsg(`取り込み: 追加 ${r.created} 件、更新 ${r.updated} 件`);
       setJson('');
       void qc.invalidateQueries({ queryKey: mcpKey });
+      onDone();
     },
     onError: (e) => setMsg(String(e)),
   });
-  const exportJson = async () => {
-    const text = await invoke('mcp:exportJson');
-    await navigator.clipboard.writeText(text);
-    setMsg('mcpServers JSON をクリップボードにコピーしました');
-  };
   return (
-    <div className="flex flex-col gap-2">
+    <div className="flex flex-col gap-3">
       <Field
         label="mcpServers JSON を貼り付けて取り込む"
         hint="Claude Desktop などの設定ファイルと同じ形式。同名のサーバーは上書きされます"
@@ -305,21 +302,20 @@ function ImportExport() {
         <Textarea
           value={json}
           onChange={(e) => setJson(e.target.value)}
-          className="min-h-24 font-mono text-xs"
+          className="min-h-40 font-mono text-xs"
           placeholder='{ "mcpServers": { "name": { "command": "npx", "args": ["..."] } } }'
+          autoFocus
         />
       </Field>
       <div className="flex items-center gap-2">
         <Button
-          variant="secondary"
-          size="sm"
           disabled={!json.trim() || importJson.isPending}
           onClick={() => importJson.mutate(json)}
         >
           取り込む
         </Button>
-        <Button variant="ghost" size="sm" onClick={() => void exportJson()}>
-          JSON をコピー
+        <Button variant="ghost" onClick={onDone}>
+          キャンセル
         </Button>
         {msg && <span className="text-fg-muted text-xs">{msg}</span>}
       </div>
@@ -358,54 +354,65 @@ export function McpSettings() {
 
   const servers = data.data?.servers ?? [];
   const statusOf = (id: string) => data.data?.statuses.find((s) => s.id === id);
-  const effectiveId: string | 'new' = selectedId ?? servers[0]?.id ?? 'new';
+  const effectiveId: string | 'new' | 'import' = selectedId ?? servers[0]?.id ?? 'new';
   const selected =
-    effectiveId === 'new' ? null : (servers.find((s) => s.id === effectiveId) ?? null);
+    effectiveId === 'new' || effectiveId === 'import'
+      ? null
+      : (servers.find((s) => s.id === effectiveId) ?? null);
+  const [copied, setCopied] = useState<string | null>(null);
+  const exportJson = async () => {
+    const text = await invoke('mcp:exportJson');
+    await navigator.clipboard.writeText(text);
+    setCopied('クリップボードにコピーしました');
+    setTimeout(() => setCopied(null), 2500);
+  };
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex gap-4">
-        <div className="w-60 shrink-0">
-          {servers.map((s) => {
-            const st = statusOf(s.id);
-            const connected = st?.state === 'connected' || st?.state === 'connecting';
-            return (
-              <div
-                key={s.id}
-                className={cn(
-                  'hover:bg-surface-3 flex items-center gap-1 rounded-md px-2 py-1.5 text-sm',
-                  effectiveId === s.id && 'bg-surface-3',
-                )}
-              >
-                <button
-                  type="button"
-                  className="min-w-0 flex-1 text-left"
-                  onClick={() => setSelectedId(s.id)}
-                >
-                  <div className="truncate">{s.name}</div>
-                  <div className="mt-0.5">
-                    <StatusBadge status={st} />
-                  </div>
-                </button>
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  aria-label={connected ? '切断' : '接続'}
-                  title={connected ? '切断' : '接続'}
-                  disabled={!s.enabled || connect.isPending || disconnect.isPending}
-                  onClick={() => (connected ? disconnect.mutate(s.id) : connect.mutate(s.id))}
-                >
-                  {st?.state === 'connecting' ? (
-                    <Loader2 size={13} className="animate-spin" />
-                  ) : connected ? (
-                    <PlugZap size={13} />
-                  ) : (
-                    <Plug size={13} />
+      <div className="flex gap-5">
+        <div className="w-56 shrink-0">
+          <div className="flex flex-col gap-0.5">
+            {servers.map((s) => {
+              const st = statusOf(s.id);
+              const connected = st?.state === 'connected' || st?.state === 'connecting';
+              return (
+                <div
+                  key={s.id}
+                  className={cn(
+                    'hover:bg-surface-3 text-fg-muted flex items-center gap-1 rounded-md px-2 py-1.5 text-sm transition-colors',
+                    effectiveId === s.id && 'bg-accent-soft text-fg',
                   )}
-                </Button>
-              </div>
-            );
-          })}
+                >
+                  <button
+                    type="button"
+                    className="min-w-0 flex-1 text-left"
+                    onClick={() => setSelectedId(s.id)}
+                  >
+                    <div className="truncate">{s.name}</div>
+                    <div className="mt-0.5">
+                      <StatusBadge status={st} />
+                    </div>
+                  </button>
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    aria-label={connected ? '切断' : '接続'}
+                    title={connected ? '切断' : '接続'}
+                    disabled={!s.enabled || connect.isPending || disconnect.isPending}
+                    onClick={() => (connected ? disconnect.mutate(s.id) : connect.mutate(s.id))}
+                  >
+                    {st?.state === 'connecting' ? (
+                      <Loader2 size={13} className="animate-spin" />
+                    ) : connected ? (
+                      <PlugZap size={13} />
+                    ) : (
+                      <Plug size={13} />
+                    )}
+                  </Button>
+                </div>
+              );
+            })}
+          </div>
           <Button
             variant="ghost"
             className="mt-1 w-full justify-start"
@@ -413,32 +420,54 @@ export function McpSettings() {
           >
             <Plus size={14} /> 追加
           </Button>
+          <Button
+            variant="ghost"
+            className={cn(
+              'w-full justify-start',
+              effectiveId === 'import' && 'bg-accent-soft text-fg',
+            )}
+            onClick={() => setSelectedId('import')}
+          >
+            <FileJson size={14} /> JSON から取り込む
+          </Button>
+          <Button
+            variant="ghost"
+            className="w-full justify-start"
+            title="登録済みのサーバーを mcpServers JSON としてコピー"
+            onClick={() => void exportJson()}
+          >
+            <Copy size={14} /> JSON をコピー
+          </Button>
+          {copied && <p className="text-fg-subtle px-2 pt-1 text-[11px]">{copied}</p>}
         </div>
-        <div className="border-border min-w-0 flex-1 border-l pl-4">
-          {selected && statusOf(selected.id)?.state === 'error' && (
-            <p className="mb-2 rounded border border-danger/30 bg-danger/10 px-2 py-1 text-xs text-danger whitespace-pre-wrap">
-              {statusOf(selected.id)?.error}
-            </p>
+        <div className="border-border min-w-0 flex-1 border-l pl-5">
+          {effectiveId === 'import' ? (
+            <ImportPanel onDone={() => setSelectedId(null)} />
+          ) : (
+            <>
+              {selected && statusOf(selected.id)?.state === 'error' && (
+                <p className="mb-2 rounded border border-danger/30 bg-danger/10 px-2 py-1 text-xs text-danger whitespace-pre-wrap">
+                  {statusOf(selected.id)?.error}
+                </p>
+              )}
+              {selected && (statusOf(selected.id)?.tools.length ?? 0) > 0 && (
+                <div className="text-fg-muted mb-2 text-[11px]">
+                  ツール:{' '}
+                  {statusOf(selected.id)!
+                    .tools.map((t) => t.name)
+                    .join(', ')}
+                </div>
+              )}
+              <ServerForm
+                key={selected?.id ?? 'new'}
+                initial={selected}
+                onSaved={() => setSelectedId(null)}
+                onDeleted={() => setSelectedId('new')}
+              />
+            </>
           )}
-          {selected && (statusOf(selected.id)?.tools.length ?? 0) > 0 && (
-            <div className="text-fg-muted mb-2 text-[11px]">
-              ツール:{' '}
-              {statusOf(selected.id)!
-                .tools.map((t) => t.name)
-                .join(', ')}
-            </div>
-          )}
-          <ServerForm
-            key={selected?.id ?? 'new'}
-            initial={selected}
-            onSaved={() => setSelectedId(null)}
-            onDeleted={() => setSelectedId('new')}
-          />
         </div>
       </div>
-      <section className="border-border border-t pt-4">
-        <ImportExport />
-      </section>
     </div>
   );
 }
