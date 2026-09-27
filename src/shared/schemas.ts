@@ -57,6 +57,8 @@ export const ChatParamsSchema = z.object({
   repeatPenalty: z.number().min(0).optional(),
   /** thinking 系モデルの思考を有効化するか(未指定ならサーバー既定) */
   think: z.boolean().optional(),
+  /** 思考のレベル(low / medium / high / xhigh / max 等。モデルが対応する時だけ意味を持つ) */
+  reasoningEffort: z.string().optional(),
 });
 export type ChatParams = z.infer<typeof ChatParamsSchema>;
 
@@ -68,6 +70,8 @@ export const CapabilitiesSchema = z.object({
   streamingToolCalls: z.boolean(),
   toolResultMedia: z.enum(['inline', 'follow-up-user-message']),
   reasoning: z.boolean(),
+  /** 思考のレベル指定に対応している時、その候補(テンプレート等から検出)。空なら ON/OFF のみ */
+  reasoningLevels: z.array(z.string()),
 });
 export type Capabilities = z.infer<typeof CapabilitiesSchema>;
 export const CapabilityOverridesSchema = CapabilitiesSchema.partial();

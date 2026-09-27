@@ -13,7 +13,7 @@ import { binariesAvailable, resolveBinaries } from '@main/media/binaries';
 import { FfmpegService } from '@main/media/ffmpeg';
 import { MediaStore } from '@main/media/store';
 import { VideoOps } from '@main/media/video-ops';
-import { sse, startMockServer, type MockServer } from '@main/providers/test-server';
+import { chatRequests, sse, startMockServer, type MockServer } from '@main/providers/test-server';
 import { createVideoTools } from '@main/tools/builtin/video';
 import { ToolRegistry } from '@main/tools/registry';
 import { MediaResolver } from './media-resolver';
@@ -165,7 +165,7 @@ describe.skipIf(!available.ffmpeg)('ChatService with video attachments', () => {
     // ユーザーメッセージ: テキスト + 動画パート + コンタクトシート画像
     expect(path[0]!.parts.map((x) => x.type)).toEqual(['text', 'video', 'image']);
     // 1 回目のリクエスト: 動画注記と video_id、コンタクトシートが画像として送られている
-    const first = server.requests[0]!.body as {
+    const first = chatRequests(server)[0]!.body as {
       messages: Wire[];
       tools: { function: { name: string } }[];
     };
@@ -251,7 +251,7 @@ describe.skipIf(!available.ffmpeg)('ChatService with video attachments', () => {
     expect(mediaMsg.parts.map((x) => x.type)).toEqual(['text', 'image', 'image']);
 
     // 2 回目のリクエストでは tool メッセージの後に画像付き user メッセージが送られる
-    const second = server.requests[1]!.body as { messages: Wire[] };
+    const second = chatRequests(server)[1]!.body as { messages: Wire[] };
     expect(second.messages.map((m) => m.role)).toEqual(['user', 'assistant', 'tool', 'user']);
     const followUp = second.messages[3]!.content as { type: string; image_url?: { url: string } }[];
     expect(followUp.filter((x) => x.type === 'image_url')).toHaveLength(2);
@@ -290,7 +290,7 @@ describe.skipIf(!available.ffmpeg)('ChatService with video attachments', () => {
       attachments: [{ id: video.id, sendMode: 'native' }],
     });
     await service.waitFor(run.runId);
-    const req = server.requests[0]!.body as { messages: Wire[] };
+    const req = chatRequests(server)[0]!.body as { messages: Wire[] };
     const content = req.messages[0]!.content as { type: string; input_video?: { data: string } }[];
     expect(content.map((x) => x.type)).toEqual(['text', 'input_video']);
     expect(content[1]!.input_video!.data.length).toBeGreaterThan(1000);
@@ -326,7 +326,7 @@ describe.skipIf(!available.ffmpeg)('ChatService with video attachments', () => {
       attachments: [{ id: video.id, sendMode: 'native', range }],
     });
     await service.waitFor(run1.runId);
-    const req1 = server.requests[0]!.body as { messages: Wire[] };
+    const req1 = chatRequests(server)[0]!.body as { messages: Wire[] };
     const content = req1.messages[0]!.content as { type: string; text?: string }[];
     expect(content.map((x) => x.type)).toEqual(['text', 'input_video']);
     expect(content[0]!.text).toContain('user-selected range');
@@ -356,7 +356,7 @@ describe.skipIf(!available.ffmpeg)('ChatService with video attachments', () => {
     const stored2 = messages.pathToRoot(conversations.get(c2.id)!.activeLeafId!)[0]!;
     const sheet = stored2.parts.find((x) => x.type === 'image');
     expect(sheet?.name).toMatch(/contact sheet [\d.]+s-[\d.]+s\)/);
-    const req2 = server.requests[1]!.body as { messages: Wire[] };
+    const req2 = chatRequests(server)[1]!.body as { messages: Wire[] };
     const text2 = (req2.messages[0]!.content as { type: string; text?: string }[])[0]!.text!;
     expect(text2).toContain('focus on the range');
   });

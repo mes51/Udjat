@@ -61,7 +61,51 @@ export function guessFromModelName(kind: ServerKind, model: string): Capabilitie
     streamingToolCalls: true,
     toolResultMedia: 'follow-up-user-message',
     reasoning: matchAny(model, REASONING_PATTERNS),
+    reasoningLevels: [],
   };
+}
+
+/** 思考レベルの正規の並び(テンプレートから拾った語をこの順に揃える) */
+export const REASONING_LEVEL_ORDER = ['minimal', 'low', 'medium', 'high', 'xhigh', 'max'] as const;
+
+export interface TemplateReasoning {
+  /** 思考の ON/OFF をテンプレートが受け付けるか(enable_thinking 等) */
+  reasoning: boolean;
+  /** reasoning_effort をテンプレートが読む時、その候補 */
+  levels: string[];
+}
+
+/**
+ * chat template(Jinja)から思考対応とレベルを検出する。モデル名のヒューリスティクスより確実で、
+ * llama.cpp(/props の chat_template)と Unsloth(/v1/validate の chat_template)で使う。
+ *
+ * - enable_thinking / thinking 変数、<|think|>、<think> があれば思考対応
+ * - reasoning_effort を読むテンプレートは、比較や変数名に現れるレベル語を候補にする
+ *   (Qwen3.8: 'xhigh' | 'medium' | 'low'、DeepSeek V4: reasoning_effort_high / _max、gpt-oss: Reasoning: low|medium|high)
+ */
+export function detectReasoningFromTemplate(
+  template: string | null | undefined,
+): TemplateReasoning {
+  const t = template ?? '';
+  if (!t) return { reasoning: false, levels: [] };
+  const usesEffort = /reasoning_effort/.test(t);
+  const reasoning =
+    usesEffort ||
+    /enable_thinking/.test(t) ||
+    /\bthinking\s+is\s+(?:defined|true|false)/.test(t) ||
+    /<\|think\|>/.test(t) ||
+    /<think>/.test(t);
+  if (!usesEffort) return { reasoning, levels: [] };
+  const found = new Set<string>();
+  // 'high' のような引用付きの語、reasoning_effort_high のような変数名の両方を拾う
+  for (const m of t.matchAll(/['"](minimal|low|medium|high|xhigh|max)['"]/g)) found.add(m[1]!);
+  for (const m of t.matchAll(/reasoning_effort_(minimal|low|medium|high|xhigh|max)\b/g))
+    found.add(m[1]!);
+  // gpt-oss(Harmony): "Reasoning: low" のような文字列
+  for (const m of t.matchAll(/Reasoning:\s*(minimal|low|medium|high|xhigh|max)\b/g))
+    found.add(m[1]!);
+  const levels = REASONING_LEVEL_ORDER.filter((l) => found.has(l));
+  return { reasoning, levels: [...levels] };
 }
 
 /**
@@ -83,5 +127,10 @@ export function resolveCapabilities(
   // 画像非対応なら動画のネイティブ入力もあり得ない(明示的に video を上書きした場合を除く)
   const videoForced = modelOverrides.video !== undefined || overrides.video !== undefined;
   if (!merged.image && merged.video === 'native' && !videoForced) merged.video = 'none';
+  // 思考非対応ならレベルも無い
+  if (!merged.reasoning) merged.reasoningLevels = [];
+  merged.reasoningLevels = [
+    ...new Set(merged.reasoningLevels.map((l) => l.trim().toLowerCase())),
+  ].filter(Boolean);
   return merged;
 }

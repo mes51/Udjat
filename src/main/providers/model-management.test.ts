@@ -114,6 +114,7 @@ describe('model management', () => {
           tools: false,
           streamingToolCalls: false,
           toolResultMedia: 'follow-up-user-message',
+          reasoningLevels: [],
           reasoning: false,
         },
       },

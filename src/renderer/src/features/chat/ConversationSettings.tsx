@@ -73,6 +73,23 @@ function numToStr(v: number | undefined): string {
   return v === undefined ? '' : String(v);
 }
 
+/** 思考セレクトの値: '' = サーバー既定, 'on' / 'off', 'level:<name>' = 有効 + レベル */
+function thinkValue(p: ChatParams): string {
+  if (p.think === false) return 'off';
+  if (p.reasoningEffort) return `level:${p.reasoningEffort}`;
+  return p.think === true ? 'on' : '';
+}
+
+/** モデルが対応するレベルに、保存済みで一覧に無い値があればそれも足す */
+function thinkLevelOptions(levels: string[], current: string): string[] {
+  const out = [...levels];
+  if (current.startsWith('level:')) {
+    const cur = current.slice('level:'.length);
+    if (!out.includes(cur)) out.push(cur);
+  }
+  return out;
+}
+
 /** スライダーと数値入力を並べた 1 項目。空文字 = 既定(サーバーに任せる) */
 function ParamSlider({
   field,
@@ -155,9 +172,7 @@ export function ConversationSettings({ conversation }: { conversation: Conversat
   const [params, setParams] = useState<Record<NumKey, string>>(() =>
     toStrings(conversation.params),
   );
-  const [think, setThink] = useState<'' | 'on' | 'off'>(
-    conversation.params.think === undefined ? '' : conversation.params.think ? 'on' : 'off',
-  );
+  const [think, setThink] = useState<string>(thinkValue(conversation.params));
   const [dirty, setDirty] = useState(false);
 
   // 会話が切り替わった / 保存後に props が更新された時にフォームを同期する(render 中の state 調整パターン)
@@ -167,9 +182,7 @@ export function ConversationSettings({ conversation }: { conversation: Conversat
     if (synced.id !== conversation.id || !dirty) {
       setSystemPrompt(conversation.systemPrompt ?? '');
       setParams(toStrings(conversation.params));
-      setThink(
-        conversation.params.think === undefined ? '' : conversation.params.think ? 'on' : 'off',
-      );
+      setThink(thinkValue(conversation.params));
       setDirty(false);
     }
   }
@@ -183,7 +196,12 @@ export function ConversationSettings({ conversation }: { conversation: Conversat
       if (!Number.isFinite(n)) continue;
       next[f.key] = n;
     }
-    if (think !== '') next.think = think === 'on';
+    if (think === 'off') next.think = false;
+    else if (think === 'on') next.think = true;
+    else if (think.startsWith('level:')) {
+      next.think = true;
+      next.reasoningEffort = think.slice('level:'.length);
+    }
     update.mutate({
       id: conversation.id,
       patch: { systemPrompt: systemPrompt.trim() === '' ? null : systemPrompt, params: next },
@@ -240,17 +258,26 @@ export function ConversationSettings({ conversation }: { conversation: Conversat
           ))}
           <Field
             label="思考 (thinking)"
-            {...(caps.data?.reasoning === false ? { hint: 'このモデルは思考非対応と推定' } : {})}
+            {...(caps.data?.reasoning === false
+              ? { hint: 'このモデルは思考非対応と推定' }
+              : (caps.data?.reasoningLevels.length ?? 0) > 0
+                ? { hint: 'このモデルは思考のレベルを指定できます' }
+                : {})}
           >
             <Select
               value={think}
               onChange={(e) => {
-                setThink(e.target.value as '' | 'on' | 'off');
+                setThink(e.target.value);
                 setDirty(true);
               }}
             >
               <option value="">サーバー既定</option>
               <option value="on">有効</option>
+              {thinkLevelOptions(caps.data?.reasoningLevels ?? [], think).map((l) => (
+                <option key={l} value={`level:${l}`}>
+                  有効 ({l})
+                </option>
+              ))}
               <option value="off">無効</option>
             </Select>
           </Field>
@@ -287,6 +314,43 @@ function Status({ on, label }: { on: boolean | undefined; label?: string | undef
         {label ?? (on === undefined ? '…' : on ? 'あり' : 'なし')}
       </span>
     </span>
+  );
+}
+
+/** 思考レベルの上書き(カンマ区切り)。空にすると自動検出に戻る。確定は blur か Enter */
+function LevelsOverride({
+  value,
+  onCommit,
+}: {
+  value: string[] | undefined;
+  onCommit: (levels: string[] | undefined) => void;
+}) {
+  const initial = value?.join(', ') ?? '';
+  const [text, setText] = useState(initial);
+  const [seen, setSeen] = useState(initial);
+  if (seen !== initial) {
+    setSeen(initial);
+    setText(initial);
+  }
+  const commit = () => {
+    const levels = text
+      .split(/[,\s/]+/)
+      .map((s) => s.trim().toLowerCase())
+      .filter(Boolean);
+    const next = levels.length > 0 ? levels : undefined;
+    if ((next?.join(',') ?? '') !== (value?.join(',') ?? '')) onCommit(next);
+  };
+  return (
+    <Input
+      value={text}
+      placeholder="自動"
+      aria-label="思考レベルの上書き"
+      title="カンマ区切りで指定(例: low, medium, high)。空なら自動検出"
+      className={cn('h-7 text-xs', value !== undefined && 'border-accent/60')}
+      onChange={(e) => setText(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => e.key === 'Enter' && commit()}
+    />
   );
 }
 
@@ -373,6 +437,32 @@ function ModelCapabilities({ profileId, model }: { profileId: string; model: str
             <option value="native">ネイティブ</option>
             <option value="none">フレーム分解</option>
           </Select>
+        ),
+      },
+      {
+        key: 'reasoningLevels',
+        label: '思考レベル',
+        status: (
+          <span
+            className={cn(
+              'truncate text-xs',
+              c?.reasoningLevels.length ? 'text-fg' : 'text-fg-muted',
+            )}
+            title={c?.reasoningLevels.join(', ')}
+          >
+            {c ? (c.reasoningLevels.length ? c.reasoningLevels.join(' / ') : 'ON/OFF のみ') : '…'}
+          </span>
+        ),
+        control: (
+          <LevelsOverride
+            value={overrides.reasoningLevels}
+            onCommit={(levels) => {
+              const next = { ...overrides };
+              if (levels === undefined) delete next.reasoningLevels;
+              else next.reasoningLevels = levels;
+              save.mutate(next);
+            }}
+          />
         ),
       },
     ];

@@ -76,3 +76,8 @@ export function json(res: ServerResponse, body: unknown, status = 200): void {
   res.writeHead(status, { 'Content-Type': 'application/json' });
   res.end(JSON.stringify(body));
 }
+
+/** チャット要求だけを取り出す(capability の問い合わせ等で /v1/models も混ざるため) */
+export function chatRequests(server: MockServer): MockServer['requests'] {
+  return server.requests.filter((r) => r.path === '/v1/chat/completions' || r.path === '/api/chat');
+}

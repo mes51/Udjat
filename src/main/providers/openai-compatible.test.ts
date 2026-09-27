@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import type { ChatEvent } from '@shared/schemas';
-import { OpenAICompatibleAdapter } from './openai-compatible';
+import { applyReasoning, OpenAICompatibleAdapter } from './openai-compatible';
 import { normalizeBaseUrl } from './http';
 import { json, sse, startMockServer, type MockServer } from './test-server';
 import { guessFromModelName } from './capabilities';
@@ -253,5 +253,52 @@ describe('OpenAICompatibleAdapter', () => {
     })();
     await expect(run).rejects.toThrow();
     expect(got).toEqual([{ type: 'text-delta', text: 'first' }]);
+  });
+});
+
+describe('applyReasoning', () => {
+  const build = (
+    kind: Parameters<typeof applyReasoning>[0],
+    p: Parameters<typeof applyReasoning>[1],
+  ) => {
+    const body: Record<string, unknown> = {};
+    applyReasoning(kind, p, body);
+    return body;
+  };
+  it('sends nothing when unspecified', () => {
+    expect(build('llamacpp', {})).toEqual({});
+  });
+  it('llama.cpp: off = reasoning_effort none + budget 0, level goes to template and top-level', () => {
+    expect(build('llamacpp', { think: false })).toEqual({
+      chat_template_kwargs: { enable_thinking: false },
+      reasoning_budget: 0,
+      reasoning_effort: 'none',
+    });
+    expect(build('llamacpp', { think: true, reasoningEffort: 'xhigh' })).toEqual({
+      chat_template_kwargs: { enable_thinking: true, reasoning_effort: 'xhigh' },
+      reasoning_budget: -1,
+      reasoning_effort: 'xhigh',
+    });
+  });
+  it('unsloth: top-level enable_thinking / reasoning_effort', () => {
+    expect(build('unsloth', { think: true, reasoningEffort: 'high' })).toEqual({
+      chat_template_kwargs: { enable_thinking: true, reasoning_effort: 'high' },
+      enable_thinking: true,
+      reasoning_effort: 'high',
+    });
+    expect(build('unsloth', { think: false, reasoningEffort: 'high' })).toEqual({
+      chat_template_kwargs: { enable_thinking: false },
+      enable_thinking: false,
+      reasoning_effort: 'none',
+    });
+  });
+  it('vLLM / LM Studio: template kwargs plus OpenAI reasoning_effort', () => {
+    expect(build('vllm', { reasoningEffort: 'low' })).toEqual({
+      chat_template_kwargs: { reasoning_effort: 'low' },
+      reasoning_effort: 'low',
+    });
+    expect(build('lmstudio', { think: true })).toEqual({
+      chat_template_kwargs: { enable_thinking: true },
+    });
   });
 });

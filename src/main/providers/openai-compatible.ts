@@ -1,4 +1,12 @@
-import type { ChatEvent, ModelInfo, ServerKind, ServerProfile, ToolCall } from '@shared/schemas';
+import type {
+  ChatEvent,
+  ChatParams,
+  ModelInfo,
+  ServerKind,
+  ServerProfile,
+  ToolCall,
+} from '@shared/schemas';
+import { detectReasoningFromTemplate } from './capabilities';
 import { request, requestJson } from './http';
 import {
   modelManagerFor,
@@ -86,6 +94,47 @@ function toWireMessages(kind: ServerKind, messages: CanonicalMessage[]): WireMes
   });
 }
 
+/**
+ * LM Studio の REST API v1(/api/v1/models)には capability(vision / tool use / reasoning の候補)があるので、
+ * OpenAI 互換の一覧に重ねる。無ければ何もしない。
+ */
+async function mergeLmStudioCapabilities(
+  profile: ServerProfile,
+  models: ModelInfo[],
+  signal?: AbortSignal,
+): Promise<void> {
+  try {
+    const res = await requestJson<{
+      models?: {
+        key: string;
+        max_context_length?: number;
+        capabilities?: {
+          vision?: boolean;
+          trained_for_tool_use?: boolean;
+          reasoning?: { allowed_options?: string[]; default?: string };
+        };
+      }[];
+    }>(profile, '/api/v1/models', { signal, timeoutMs: 5_000 });
+    const byKey = new Map((res.models ?? []).map((m) => [m.key, m] as const));
+    for (const m of models) {
+      const row = byKey.get(m.id);
+      if (!row) continue;
+      if (row.max_context_length && !m.contextLength) m.contextLength = row.max_context_length;
+      const c = row.capabilities;
+      if (!c) continue;
+      const options = (c.reasoning?.allowed_options ?? []).filter((o) => o !== 'on' && o !== 'off');
+      m.capabilities = {
+        ...m.capabilities,
+        ...(c.vision !== undefined ? { image: c.vision } : {}),
+        ...(c.trained_for_tool_use !== undefined ? { tools: c.trained_for_tool_use } : {}),
+        ...(c.reasoning ? { reasoning: true, reasoningLevels: options } : {}),
+      };
+    }
+  } catch {
+    /* v1 REST API が無い(古い LM Studio) */
+  }
+}
+
 /** サーバーに渡すモデル id。Unsloth は "repo:QUANT" で選んでいても素の id で送る(量子化はロード時に決まる) */
 function wireModelId(kind: ServerKind, model: string): string {
   return kind === 'unsloth' ? splitUnslothModel([], model).id : model;
@@ -129,6 +178,43 @@ async function expandUnslothVariants(
   return expanded.flat();
 }
 
+/**
+ * 思考の ON/OFF とレベルをサーバーごとの流儀で付ける。
+ * - テンプレート変数: chat_template_kwargs.enable_thinking / reasoning_effort(llama.cpp / vLLM / LM Studio / Unsloth 共通)
+ * - llama.cpp: reasoning_effort "none" で無効化、それ以外の値はテンプレートに渡る。reasoning_budget も併用
+ * - Unsloth: トップレベルの enable_thinking / reasoning_effort([x-unsloth])
+ * - LM Studio / vLLM / 汎用: OpenAI 互換の reasoning_effort
+ * 未指定(undefined)なら何も送らずサーバー既定に任せる。
+ */
+export function applyReasoning(
+  kind: ServerKind,
+  p: ChatParams,
+  body: Record<string, unknown>,
+): void {
+  const off = p.think === false;
+  const level = !off && p.reasoningEffort ? p.reasoningEffort : undefined;
+  if (p.think === undefined && !level) return;
+  const kwargs: Record<string, unknown> = {};
+  if (p.think !== undefined) kwargs['enable_thinking'] = p.think;
+  if (level) kwargs['reasoning_effort'] = level;
+  body['chat_template_kwargs'] = kwargs;
+  if (kind === 'llamacpp') {
+    if (off) {
+      body['reasoning_budget'] = 0;
+      body['reasoning_effort'] = 'none';
+    } else {
+      body['reasoning_budget'] = -1;
+      if (level) body['reasoning_effort'] = level;
+    }
+  } else if (kind === 'unsloth') {
+    if (p.think !== undefined) body['enable_thinking'] = p.think;
+    if (off) body['reasoning_effort'] = 'none';
+    else if (level) body['reasoning_effort'] = level;
+  } else if (level) {
+    body['reasoning_effort'] = level;
+  }
+}
+
 function buildBody(kind: ServerKind, req: ChatRequest): Record<string, unknown> {
   const p = req.params;
   const body: Record<string, unknown> = {
@@ -153,11 +239,7 @@ function buildBody(kind: ServerKind, req: ChatRequest): Record<string, unknown> 
   }
   if (kind === 'vllm' && p.repeatPenalty !== undefined)
     body['repetition_penalty'] = p.repeatPenalty;
-  if (p.think !== undefined) {
-    // llama.cpp: reasoning_budget=0 で思考を無効化。vLLM / LM Studio: chat_template_kwargs.enable_thinking
-    if (kind === 'llamacpp') body['reasoning_budget'] = p.think ? -1 : 0;
-    else body['chat_template_kwargs'] = { enable_thinking: p.think };
-  }
+  applyReasoning(kind, p, body);
   if (req.tools && req.tools.length > 0 && req.capabilities.tools) {
     body['tools'] = req.tools.map((t) => ({
       type: 'function',
@@ -216,12 +298,17 @@ export class OpenAICompatibleAdapter implements ProviderAdapter {
       return info;
     });
     if (this.kind === 'llamacpp') {
-      // /props で n_ctx と modalities が取れる(単一モデル運用が前提)
+      // /props で n_ctx と modalities、chat_template(思考対応の検出)が取れる(単一モデル運用が前提)
       try {
         const props = await requestJson<{
           default_generation_settings?: { n_ctx?: number };
           modalities?: { vision?: boolean; audio?: boolean };
+          chat_template?: string;
+          chat_template_caps?: { supports_reasoning_effort?: boolean };
         }>(profile, '/props', { signal, timeoutMs: 5_000 });
+        const reasoning = props.chat_template
+          ? detectReasoningFromTemplate(props.chat_template)
+          : null;
         for (const m of models) {
           if (props.default_generation_settings?.n_ctx)
             m.contextLength = props.default_generation_settings.n_ctx;
@@ -232,18 +319,112 @@ export class OpenAICompatibleAdapter implements ProviderAdapter {
               ...(props.modalities.audio !== undefined ? { audio: props.modalities.audio } : {}),
             };
           }
+          if (reasoning) {
+            m.capabilities = {
+              ...m.capabilities,
+              reasoning: reasoning.reasoning,
+              reasoningLevels: reasoning.levels,
+            };
+          }
         }
       } catch {
         /* 古い llama.cpp や別実装では /props が無い */
       }
     }
+    if (this.kind === 'lmstudio') await mergeLmStudioCapabilities(profile, models, signal);
     if (this.kind === 'unsloth')
       return expandUnslothVariants(profile, res.data ?? [], models, signal);
     return models;
   }
 
-  async describeModel(): Promise<ModelInfo | null> {
-    return null;
+  /**
+   * Unsloth だけモデル単位の情報が取れる: 常駐中なら /v1/status(supports_reasoning、reasoning_effort_levels、
+   * is_vision 等)、未ロードなら /v1/validate で chat_template を読んで思考対応を検出する。
+   */
+  async describeModel(
+    profile: ServerProfile,
+    model: string,
+    signal?: AbortSignal,
+  ): Promise<ModelInfo | null> {
+    if (this.kind !== 'unsloth') {
+      // llama.cpp / LM Studio は一覧取得時にサーバー申告(/props、/api/v1/models)を付けているので、そこから引く
+      try {
+        const list = await this.listModels(profile, signal);
+        return list.find((m) => m.id === model) ?? null;
+      } catch {
+        return null;
+      }
+    }
+    const { id, quant } = splitUnslothModel([], model);
+    const name = id.split('/').pop() ?? id;
+    try {
+      const st = await requestJson<{
+        active_model?: string | null;
+        model_identifier?: string | null;
+        loaded?: string[];
+        supports_reasoning?: boolean;
+        reasoning_style?: string;
+        reasoning_effort_levels?: string[];
+        supports_tools?: boolean;
+        is_vision?: boolean;
+        has_audio_input?: boolean;
+        has_video_input?: boolean;
+      }>(profile, '/v1/status', { signal, timeoutMs: 8_000 });
+      const resident = [st.active_model, st.model_identifier, ...(st.loaded ?? [])].filter(
+        (x): x is string => typeof x === 'string',
+      );
+      if (resident.some((r) => r === id || r === model || r.endsWith(`/${name}`))) {
+        let levels = st.reasoning_effort_levels ?? [];
+        // 純粋な reasoning_effort 型(gpt-oss 等)は候補が返らないので一般的な 3 段を出す
+        if (levels.length === 0 && st.reasoning_style === 'reasoning_effort')
+          levels = ['low', 'medium', 'high'];
+        return {
+          id: model,
+          name,
+          loaded: true,
+          capabilities: {
+            ...(st.supports_reasoning !== undefined ? { reasoning: st.supports_reasoning } : {}),
+            reasoningLevels: st.supports_reasoning ? levels : [],
+            ...(st.supports_tools !== undefined ? { tools: st.supports_tools } : {}),
+            ...(st.is_vision !== undefined ? { image: st.is_vision } : {}),
+            ...(st.has_audio_input !== undefined ? { audio: st.has_audio_input } : {}),
+          },
+        };
+      }
+    } catch {
+      /* status が取れなくても validate で続ける */
+    }
+    try {
+      const v = await requestJson<{
+        valid?: boolean;
+        is_vision?: boolean;
+        chat_template?: string | null;
+        context_length?: number | null;
+      }>(profile, '/v1/validate', {
+        method: 'POST',
+        body: {
+          model_path: id,
+          ...(quant ? { gguf_variant: quant } : {}),
+          include_chat_template: true,
+        },
+        signal,
+        timeoutMs: 30_000,
+      });
+      if (!v.valid) return null;
+      const r = detectReasoningFromTemplate(v.chat_template);
+      const info: ModelInfo = {
+        id: model,
+        name,
+        capabilities: {
+          ...(v.is_vision !== undefined ? { image: v.is_vision } : {}),
+          ...(v.chat_template ? { reasoning: r.reasoning, reasoningLevels: r.levels } : {}),
+        },
+      };
+      if (v.context_length) info.contextLength = v.context_length;
+      return info;
+    } catch {
+      return null;
+    }
   }
 
   async *chat(

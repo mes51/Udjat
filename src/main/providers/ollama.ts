@@ -75,8 +75,13 @@ function buildBody(req: ChatRequest): Record<string, unknown> {
     stream: true,
     options,
   };
-  // think は対応モデル以外に送るとエラーになるため、明示指定かつ reasoning 対応の時だけ付ける
-  if (p.think !== undefined && req.capabilities.reasoning) body['think'] = p.think;
+  // think は対応モデル以外に送るとエラーになるため、明示指定かつ reasoning 対応の時だけ付ける。
+  // レベル指定(low / medium / high / max)は think にそのまま文字列で渡す
+  if (req.capabilities.reasoning) {
+    if (p.think === false) body['think'] = false;
+    else if (p.reasoningEffort) body['think'] = p.reasoningEffort;
+    else if (p.think === true) body['think'] = true;
+  }
   if (req.tools && req.tools.length > 0 && req.capabilities.tools) {
     body['tools'] = req.tools.map((t) => ({
       type: 'function',

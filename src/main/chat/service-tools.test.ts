@@ -4,7 +4,7 @@ import { openDatabase, type Database } from '@main/db/client';
 import { ConversationRepository } from '@main/db/repositories/conversations';
 import { MessageRepository } from '@main/db/repositories/messages';
 import { ServerProfileRepository } from '@main/db/repositories/server-profiles';
-import { sse, startMockServer, type MockServer } from '@main/providers/test-server';
+import { chatRequests, sse, startMockServer, type MockServer } from '@main/providers/test-server';
 import { ToolRegistry } from '@main/tools/registry';
 import { ok } from '@main/tools/types';
 import { ChatService } from './service';
@@ -149,7 +149,7 @@ describe('ChatService tool loop', () => {
     expect(events.at(-1)?.messageId).toBe(path[3]!.id);
 
     // サーバーには tools 定義と tool 結果が送られている
-    const second = server.requests[1]!.body as {
+    const second = chatRequests(server)[1]!.body as {
       tools: unknown[];
       messages: { role: string; tool_call_id?: string }[];
     };

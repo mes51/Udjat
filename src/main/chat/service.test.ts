@@ -75,15 +75,16 @@ describe('ChatService title generation', () => {
     await service.waitFor(r1.runId);
     expect(conversations.get(c.id)!.title).toBe('天気の質問');
     // タイトル生成のリクエストは think を切り、短い max_tokens で送る
-    const titleReq = server.requests.find((r) => JSON.stringify(r.body).includes('short title'))!
-      .body as Record<string, unknown>;
+    const titleReq = server.requests.find((r) =>
+      JSON.stringify(r.body ?? '').includes('short title'),
+    )!.body as Record<string, unknown>;
     expect(titleReq).toMatchObject({ max_tokens: 48, reasoning_budget: 0 });
 
     // 2 往復目以降はタイトルを付け直さない
     const r2 = await service.send({ conversationId: c.id, text: '明日は?' });
     await service.waitFor(r2.runId);
     expect(
-      server.requests.filter((r) => JSON.stringify(r.body).includes('short title')),
+      server.requests.filter((r) => JSON.stringify(r.body ?? '').includes('short title')),
     ).toHaveLength(1);
 
     // 編集: 元のユーザー発言と同じ親の下に新しい分岐
