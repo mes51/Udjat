@@ -21,7 +21,7 @@
 - 必ず `Field` でラベルを付ける。ヒントは 1 文まで
 - placeholder は「例: …」か「空なら既定」のように、空の意味を書く。ラベルの代わりに使わない
 - 数値は `type="number"` + `step`。単位はラベルに書く(「最大秒数」「幅 (px)」)
-- `Select` は `ui-select` クラスで矢印を描く。自前の `<select>` を書かない
+- `Select` は `ui-select` クラスで矢印を描く。自前の `<select>` を書かない。ドロップダウンの option は index.css で背景 `surface-2` と文字 `fg` を明示している(背景を透明にした select でも読めるように)
 
 ## Dialog / ConfirmProvider
 
