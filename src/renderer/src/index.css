@@ -130,8 +130,10 @@ select optgroup {
   background-color: var(--color-surface-2);
   color: var(--color-fg);
 }
+/* 選択中の項目は不透明なアクセント + その上用の文字色(半透明だと popup の下地に混ざって読めない) */
 select option:checked {
-  background-color: var(--color-accent-soft);
+  background-color: var(--color-accent);
+  color: var(--color-accent-fg);
 }
 
 /* チェックボックスはアクセント色に */
