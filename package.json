@@ -4,7 +4,7 @@
   "description": "Desktop chat client for local LLM servers with video-aware tool calling",
   "private": true,
   "main": "./out/main/index.js",
-  "author": "mesgo",
+  "author": "mes",
   "license": "MIT",
   "scripts": {
     "dev": "electron-vite dev",
