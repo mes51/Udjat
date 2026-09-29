@@ -6,7 +6,7 @@ import { Button } from '@renderer/components/ui/button';
 import { useConfirm } from '@renderer/components/ui/confirm';
 import { Field, Input, Select, Textarea } from '@renderer/components/ui/input';
 import { invoke, onEvent } from '@renderer/lib/ipc';
-import { keys } from '@renderer/lib/queries';
+import { keys, useSetting, useSettingMutation } from '@renderer/lib/queries';
 import { cn } from '@renderer/lib/utils';
 
 const mcpKey = ['mcp'] as const;
@@ -323,6 +323,40 @@ function ImportPanel({ onDone }: { onDone: () => void }) {
   );
 }
 
+/** MCP ツール呼び出しの制限時間(M20)。0 で無制限。フォーカスを外した時に保存 */
+function McpTimeoutSetting() {
+  const setting = useSetting<number>('mcp.requestTimeoutMs');
+  const save = useSettingMutation();
+  const [text, setText] = useState<string | null>(null);
+  const current =
+    typeof setting.data === 'number' && setting.data > 0
+      ? String(Math.round(setting.data / 1000))
+      : '0';
+  const commit = () => {
+    if (text === null) return;
+    const sec = Number(text);
+    setText(null);
+    const next = Number.isFinite(sec) && sec > 0 ? Math.round(sec) * 1000 : 0;
+    if (next !== (setting.data ?? 0)) save.mutate({ key: 'mcp.requestTimeoutMs', value: next });
+  };
+  return (
+    <Field
+      label="ツール呼び出しの制限時間(秒)"
+      hint="0 で無制限。画像・動画生成のように長い呼び出しを同期で待つ時は 0 のまま。30 秒を超えた呼び出しは自動でバックグラウンドタスクになります(設定 tools.backgroundAfterMs)"
+    >
+      <Input
+        type="number"
+        className="max-w-40"
+        value={text ?? current}
+        disabled={!setting.isFetched}
+        onChange={(e) => setText(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => e.key === 'Enter' && commit()}
+      />
+    </Field>
+  );
+}
+
 export function McpSettings() {
   const qc = useQueryClient();
   const data = useMcp();
@@ -369,6 +403,7 @@ export function McpSettings() {
 
   return (
     <div className="flex flex-col gap-6">
+      <McpTimeoutSetting />
       <div className="flex gap-5">
         <div className="w-56 shrink-0">
           <div className="flex flex-col gap-0.5">

@@ -243,6 +243,10 @@ export const ipcInvokeSchema = {
     output: AttachmentSchema,
   },
   'attachments:get': { input: Id, output: AttachmentSchema.nullable() },
+  /** 添付を「名前を付けて保存」ダイアログで書き出す。キャンセルなら null(M20) */
+  'attachments:saveAs': { input: Id, output: z.string().nullable() },
+  /** 添付を OS の既定アプリで開く */
+  'attachments:open': { input: Id, output: z.boolean() },
 
   'mcp:list': {
     input: z.undefined(),

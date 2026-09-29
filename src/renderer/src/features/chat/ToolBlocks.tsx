@@ -3,7 +3,9 @@ import {
   AlertTriangle,
   Check,
   ChevronRight,
+  Download,
   Loader2,
+  Paperclip,
   ShieldQuestion,
   Wrench,
   X,
@@ -78,6 +80,96 @@ function ToolCallRow({ call, activity }: { call: ToolCall; activity: ToolActivit
   );
 }
 
+interface ResultFile {
+  id: string;
+  name: string;
+  size: number | null;
+  mime: string | null;
+  savedTo: string | null;
+}
+
+/** ツール結果の JSON から、取り込まれた添付(attachment_id + name)を拾う(web_download / udjat.download / fs_read 等) */
+function collectResultFiles(text: string): ResultFile[] {
+  let root: unknown;
+  try {
+    root = JSON.parse(text);
+  } catch {
+    return [];
+  }
+  const out: ResultFile[] = [];
+  const seen = new Set<string>();
+  const visit = (v: unknown, depth: number) => {
+    if (!v || typeof v !== 'object' || depth > 6 || out.length >= 6) return;
+    if (Array.isArray(v)) {
+      for (const x of v) visit(x, depth + 1);
+      return;
+    }
+    const o = v as Record<string, unknown>;
+    const id = o['attachment_id'] ?? o['image_id'] ?? o['video_id'] ?? o['pdf_id'];
+    if (typeof id === 'string' && typeof o['name'] === 'string' && !seen.has(id)) {
+      seen.add(id);
+      out.push({
+        id,
+        name: o['name'],
+        size: typeof o['size'] === 'number' ? o['size'] : null,
+        mime: typeof o['mime'] === 'string' ? o['mime'] : null,
+        savedTo: typeof o['saved_to'] === 'string' ? o['saved_to'] : null,
+      });
+    }
+    for (const x of Object.values(o)) visit(x, depth + 1);
+  };
+  visit(root, 0);
+  return out;
+}
+
+function formatBytes(n: number): string {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+/** 取り込まれたファイルのチップ(保存 / 開く)。ユーザーが生成結果を手元で確認できるようにする(M20) */
+function ResultFileChips({ files }: { files: ResultFile[] }) {
+  const [msg, setMsg] = useState<string | null>(null);
+  if (files.length === 0) return null;
+  const saveAs = async (f: ResultFile) => {
+    try {
+      const path = await invoke('attachments:saveAs', { id: f.id });
+      if (path) setMsg(`保存しました: ${path}`);
+    } catch (e) {
+      setMsg(String(e));
+    }
+  };
+  const openFile = async (f: ResultFile) => {
+    try {
+      await invoke('attachments:open', { id: f.id });
+    } catch (e) {
+      setMsg(String(e));
+    }
+  };
+  return (
+    <div className="border-border flex flex-col gap-1 border-t px-2.5 py-1.5 text-xs">
+      {files.map((f) => (
+        <div key={f.id} className="flex min-w-0 items-center gap-2">
+          <Paperclip size={12} className="text-fg-muted shrink-0" />
+          <span className="min-w-0 truncate" title={f.savedTo ?? f.name}>
+            {f.name}
+            {f.size !== null && <span className="text-fg-muted"> · {formatBytes(f.size)}</span>}
+            {f.savedTo && <span className="text-fg-muted"> · 保存済み: {f.savedTo}</span>}
+          </span>
+          <Button variant="ghost" size="sm" className="ml-auto" onClick={() => void openFile(f)}>
+            開く
+          </Button>
+          <Button variant="ghost" size="sm" onClick={() => void saveAs(f)}>
+            <Download size={12} /> 保存…
+          </Button>
+        </div>
+      ))}
+      {msg && <div className="text-fg-muted truncate">{msg}</div>}
+    </div>
+  );
+}
+
 /** role: tool のメッセージ(結果カード) */
 export function ToolResultCard({ message }: { message: Message }) {
   const [open, setOpen] = useState(false);
@@ -90,6 +182,7 @@ export function ToolResultCard({ message }: { message: Message }) {
   const bg = meta?.background;
   const bgRunning = bg?.status === 'running';
   const abortTask = useAbortTaskMutation();
+  const files = isError ? [] : collectResultFiles(text);
   return (
     <div className="px-4 py-1 pl-14">
       <Collapsible.Root
@@ -149,6 +242,7 @@ export function ToolResultCard({ message }: { message: Message }) {
             </span>
           )}
         </Collapsible.Trigger>
+        <ResultFileChips files={files} />
         <Collapsible.Content>
           <pre className="text-fg-muted border-border max-h-80 overflow-auto border-t px-3 py-2 text-[11px] leading-relaxed whitespace-pre-wrap">
             {prettyResult(text)}

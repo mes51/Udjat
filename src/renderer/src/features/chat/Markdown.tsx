@@ -1,5 +1,6 @@
 import { memo, useEffect, useState, type ReactNode } from 'react';
 import ReactMarkdown from 'react-markdown';
+import remarkBreaks from 'remark-breaks';
 import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
@@ -102,11 +103,18 @@ function extractCode(children: ReactNode): { code: string; lang: string } | null
   return { code: code.replace(/\n$/, ''), lang };
 }
 
-export const Markdown = memo(function Markdown({ text }: { text: string }) {
+/** breaks: 単独の改行も改行として表示する(ユーザー入力向け。入力欄で書いた通りの行になる) */
+export const Markdown = memo(function Markdown({
+  text,
+  breaks,
+}: {
+  text: string;
+  breaks?: boolean;
+}) {
   return (
     <div className="md">
       <ReactMarkdown
-        remarkPlugins={[remarkGfm, remarkMath]}
+        remarkPlugins={breaks ? [remarkGfm, remarkMath, remarkBreaks] : [remarkGfm, remarkMath]}
         rehypePlugins={[rehypeKatex]}
         components={{
           pre: ({ children }) => {

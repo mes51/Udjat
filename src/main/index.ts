@@ -14,6 +14,7 @@ import { createPdfTools } from './tools/builtin/pdf';
 import { createCodeTools } from './tools/builtin/code';
 import { createFileTools } from './tools/builtin/files';
 import { createAttachmentTextTool } from './tools/builtin/attachment-text';
+import { createAttachmentSaveTool } from './tools/builtin/attachment-save';
 import { createDownloadTools } from './tools/builtin/download';
 import { MediaStore } from './media/store';
 import { VideoOps } from './media/video-ops';
@@ -145,6 +146,7 @@ if (!app.requestSingleInstanceLock()) {
     for (const t of createFileTools({ store: media, pdf, getSetting: (k) => settings.get(k) }))
       tools.register(t);
     tools.register(createAttachmentTextTool(media));
+    tools.register(createAttachmentSaveTool(media, (k) => settings.get(k)));
     for (const t of createDownloadTools({ store: media })) tools.register(t);
     // 未参照の添付と孤立ファイルの掃除(起動を遅らせないよう少し後で)
     setTimeout(() => {
@@ -160,6 +162,11 @@ if (!app.requestSingleInstanceLock()) {
       registry: tools,
       media,
       onStatusChange: (status) => broadcastIpcEvent('mcp:status', status),
+      // 設定 mcp.requestTimeoutMs(既定 0 = 無制限。画像・動画生成の長い呼び出しを同期で待つ)
+      requestTimeoutMs: () => {
+        const v = Number(settings.get('mcp.requestTimeoutMs'));
+        return Number.isFinite(v) ? v : 0;
+      },
     });
     void mcp.autostart(mcpServers.list());
     chat = new ChatService({

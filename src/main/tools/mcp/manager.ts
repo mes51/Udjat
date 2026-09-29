@@ -18,7 +18,8 @@ export interface McpManagerDeps {
   media?: MediaStore;
   onStatusChange?: (status: McpServerStatus) => void;
   /** 接続・ツール呼び出しのタイムアウト(ミリ秒) */
-  requestTimeoutMs?: number;
+  /** ツール呼び出しの制限時間。0 以下なら無制限(画像・動画生成のように長い同期呼び出し向け)。関数なら呼び出しのたびに評価 */
+  requestTimeoutMs?: number | (() => number);
 }
 
 interface Connection {
@@ -111,7 +112,7 @@ export class McpManager {
             });
       // SDK の Transport 型は exactOptionalPropertyTypes と相性が悪いので明示的に合わせる
       await client.connect(transport as unknown as Parameters<Client['connect']>[0], {
-        timeout: this.deps.requestTimeoutMs ?? 30_000,
+        timeout: 30_000,
       });
       const conn: Connection = {
         server,
@@ -247,9 +248,17 @@ export class McpManager {
     args: Record<string, unknown>,
     signal: AbortSignal,
   ): Promise<ToolResult> {
+    const configured =
+      typeof this.deps.requestTimeoutMs === 'function'
+        ? this.deps.requestTimeoutMs()
+        : this.deps.requestTimeoutMs;
+    // SDK の既定は 60 秒。0 以下は「無制限」扱いにする(setTimeout の上限まで)。進捗通知が来たら数え直す
+    const timeout =
+      configured === undefined ? 120_000 : configured > 0 ? configured : 2_147_483_647;
     const result = await conn.client.callTool({ name: toolName, arguments: args }, undefined, {
       signal,
-      timeout: this.deps.requestTimeoutMs ?? 120_000,
+      timeout,
+      resetTimeoutOnProgress: true,
     });
     return this.convert(
       conn,

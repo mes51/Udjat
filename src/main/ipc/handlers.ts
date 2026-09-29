@@ -1,5 +1,5 @@
-import { app, BrowserWindow, dialog } from 'electron';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { app, BrowserWindow, dialog, shell } from 'electron';
+import { copyFileSync, readFileSync, writeFileSync } from 'node:fs';
 import { binariesAvailable, resolveBinaries } from '@main/media/binaries';
 import { exportSettings, importSettings } from '@main/settings/backup';
 import { extname, join } from 'node:path';
@@ -232,6 +232,26 @@ export function registerIpcHandlers(ctx: AppContext): void {
     }),
   );
   handleIpc('attachments:get', ({ id }) => ctx.media.get(id));
+  handleIpc('attachments:saveAs', async ({ id }) => {
+    const a = ctx.media.get(id);
+    if (!a) throw new Error('添付が見つかりません');
+    const win = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0];
+    const opts = {
+      defaultPath: join(app.getPath('downloads'), a.originalName),
+      filters: [{ name: 'すべてのファイル', extensions: ['*'] }],
+    };
+    const r = win ? await dialog.showSaveDialog(win, opts) : await dialog.showSaveDialog(opts);
+    if (r.canceled || !r.filePath) return null;
+    copyFileSync(ctx.media.pathOf(a), r.filePath);
+    return r.filePath;
+  });
+  handleIpc('attachments:open', async ({ id }) => {
+    const a = ctx.media.get(id);
+    if (!a) throw new Error('添付が見つかりません');
+    const err = await shell.openPath(ctx.media.pathOf(a));
+    if (err) throw new Error(err);
+    return true;
+  });
 
   // --- 設定のバックアップ、ffmpeg ---
   handleIpc('settings:exportAll', ({ includeSecrets }) =>

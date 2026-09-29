@@ -70,7 +70,10 @@ export function Composer({
     const el = ref.current;
     if (!el) return;
     el.style.height = 'auto';
-    el.style.height = `${Math.min(el.scrollHeight, 280)}px`;
+    const h = el.scrollHeight;
+    el.style.height = `${Math.min(h, 280)}px`;
+    // 上限に達するまではスクロールバーを出さない(端数の差で極小のバーが出るのを防ぐ)
+    el.style.overflowY = h > 280 ? 'auto' : 'hidden';
   }, [text]);
 
   const addFiles = async (files: File[]) => {

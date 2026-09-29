@@ -384,7 +384,9 @@ function MessageItemInner({
           ) : (
             <>
               {text && (
-                <div className="text-[15px] leading-relaxed whitespace-pre-wrap">{text}</div>
+                <div className="text-[15px] leading-relaxed">
+                  <Markdown text={text} breaks />
+                </div>
               )}
               <MediaParts message={message} />
               <div className="mt-1 flex items-center gap-2">
@@ -429,14 +431,19 @@ function MessageItemInner({
         {!isUser && !streaming && finish !== 'tool_calls' && (
           <UsageLine usage={stream?.usage ?? message.usage} model={message.model} />
         )}
-        {!isUser && !streaming && (isLastAssistant || branch || onBranchFrom) && (
+        {!isUser && !streaming && (isLastAssistant || branch || onBranchFrom || onRegenerate) && (
           <div className="mt-1 flex items-center gap-2">
             {branch && <BranchNav branch={branch} onSwitch={onSwitchBranch} />}
-            {isLastAssistant && onRegenerate && (
+            {onRegenerate && (
               <Button
                 variant="ghost"
                 size="sm"
                 className="opacity-0 transition-opacity group-hover:opacity-100"
+                title={
+                  isLastAssistant
+                    ? undefined
+                    : 'この応答を作り直す(新しい分岐になり、元の応答と続きは分岐ナビで戻れます)'
+                }
                 onClick={() => onRegenerate(message.id)}
               >
                 <RefreshCw size={12} /> 再生成

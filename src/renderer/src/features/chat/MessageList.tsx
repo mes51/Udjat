@@ -120,7 +120,11 @@ export function MessageList({
             branch={navFor[m.id]}
             highlighted={m.id === highlightedId}
             // run 全体(ツールループ含む)が終わるまで再生成・編集・分岐切替は出さない
-            {...(running ? {} : { onRegenerate, onSwitchBranch, onEdit })}
+            {...(running ? {} : { onSwitchBranch, onEdit })}
+            // 再生成は応答グループの末尾(最後の応答、または後ろにユーザー発言が続く応答)に出す(M20)
+            {...(!running && (m.id === lastAssistantId || branchable.has(m.id))
+              ? { onRegenerate }
+              : {})}
             {...(!running && branchable.has(m.id) ? { onBranchFrom } : {})}
           />
         ))}

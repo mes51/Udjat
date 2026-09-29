@@ -25,6 +25,10 @@ export function buildToolGuide(
     );
   if (names.has('fs_read') || names.has('fs_list'))
     lines.push('- ファイルを読む・一覧するなら fs_read / fs_list を使う(コードを書く必要はない)');
+  if (names.has('attachment_save'))
+    lines.push(
+      '- ダウンロードや生成で得た添付をユーザーの手元に置くには attachment_save(attachment_id, path) で許可フォルダに保存し、保存先を伝える',
+    );
   lines.push(
     '- 会話に添付されたファイルの中身はすでに見えている(テキストは本文、画像は画像として)。改めて読みに行く必要はない',
   );

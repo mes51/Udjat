@@ -47,6 +47,8 @@ export const IPC_INVOKE_CHANNELS = [
   'attachments:addBytes',
   'attachments:addPath',
   'attachments:get',
+  'attachments:saveAs',
+  'attachments:open',
   'mcp:list',
   'mcp:create',
   'mcp:update',
