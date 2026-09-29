@@ -3,6 +3,8 @@ out/
 dist/
 release/
 .dev-data/
+# 設計メモ(個人の環境に関する記述を含むため公開リポジトリには入れない)
+docs/plan/
 *.log
 .DS_Store
 Thumbs.db

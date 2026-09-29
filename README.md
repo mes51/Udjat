@@ -141,11 +141,10 @@ src/main      Electron main(DB、IPC、LLM 通信、ツール、ffmpeg)
 src/preload   contextBridge(sandbox 有効)
 src/renderer  React UI
 src/shared    main と renderer で共有する型・スキーマ
-docs/plan     設計ドキュメント(00-overview.md から)
 docs/design   デザインシステム(色、文字、部品の使い分け)
 ```
 
-設計の経緯やマイルストーンは [docs/plan/00-overview.md](docs/plan/00-overview.md) と [docs/plan/06-roadmap.md](docs/plan/06-roadmap.md)、UI の決めごとは [docs/design/README.md](docs/design/README.md) にあります。
+UI の色・文字・部品の決めごとは [docs/design/README.md](docs/design/README.md) にあります。
 
 ## ライセンス
 
