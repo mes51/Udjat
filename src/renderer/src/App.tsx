@@ -79,8 +79,8 @@ export function App() {
         <ChatPane conversationId={selected} />
       ) : (
         <main className="text-fg-muted flex flex-1 flex-col items-center justify-center gap-3 text-sm">
-          <div className="text-fg flex items-center gap-3 text-2xl font-semibold tracking-tight">
-            <img src={iconUrl} alt="" aria-hidden className="h-12 w-12" draggable={false} />
+          <div className="text-fg flex flex-col items-center gap-3 text-2xl font-semibold tracking-tight">
+            <img src={iconUrl} alt="" aria-hidden className="h-20 w-20" draggable={false} />
             Udjat
           </div>
           {profiles.data?.length === 0 ? (
