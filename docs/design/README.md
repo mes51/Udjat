@@ -67,6 +67,12 @@ LAN 上の LLM サーバーに、動画やファイルを添えて長い会話�
 4. ライトテーマでも確認する(設定 → 一般 → テーマ)
 5. 新しい色や角丸が要ると思ったら、まずトークンで表せないか考える。要るならトークンを足して [tokens.md](tokens.md) に書く
 
+## アイコン
+
+- ホルスの目(ウジャト)を琥珀のグラデーションで描いた SVG(`resources/icon.svg`、ユーザー提供)がアプリのアイコン。アクセント色の由来でもある
+- 派生物は `node scripts/make-icons.mjs` で生成する: `build/icon.ico`(exe / タスクバー、16〜256px)、`build/icon.png`(1024px)、`resources/icon.png`(開発時のウィンドウ用、256px)。UI 内では `src/renderer/src/assets/udjat.svg` を使う(未選択時のワードマーク)
+- 正方形に収める時は周囲に 6% の余白を取り、比率は保つ。背景は透明のまま(ダーク / ライト両方に置かれる)
+
 ## 閲覧用ページ
 
 色見本と部品のプレビューを 1 ページにまとめたもの(このドキュメントと同じトークン): https://claude.ai/artifact/7QrUpSLYFUTyUMxMNC2rFE

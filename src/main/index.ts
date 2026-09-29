@@ -65,6 +65,8 @@ function createWindow(): BrowserWindow {
     show: false,
     autoHideMenuBar: true,
     backgroundColor: '#0f1115',
+    // 開発時のウィンドウ / タスクバーのアイコン(パッケージ版は exe に埋め込んだ build/icon.ico が使われる)
+    ...(app.isPackaged ? {} : { icon: join(app.getAppPath(), 'resources', 'icon.png') }),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       contextIsolation: true,

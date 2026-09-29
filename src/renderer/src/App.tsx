@@ -1,6 +1,7 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { useEffect } from 'react';
 import { Button } from '@renderer/components/ui/button';
+import iconUrl from '@renderer/assets/udjat.svg';
 import { Lightbox } from '@renderer/components/ui/lightbox';
 import { subscribeChatEvents } from '@renderer/lib/chat-events';
 import { invoke } from '@renderer/lib/ipc';
@@ -78,11 +79,8 @@ export function App() {
         <ChatPane conversationId={selected} />
       ) : (
         <main className="text-fg-muted flex flex-1 flex-col items-center justify-center gap-3 text-sm">
-          <div className="text-fg flex items-center gap-2.5 text-2xl font-semibold tracking-tight">
-            <span
-              aria-hidden
-              className="bg-accent shadow-[0_0_0_5px_var(--color-accent-soft)] inline-block h-3 w-3 rounded-full"
-            />
+          <div className="text-fg flex items-center gap-3 text-2xl font-semibold tracking-tight">
+            <img src={iconUrl} alt="" aria-hidden className="h-12 w-12" draggable={false} />
             Udjat
           </div>
           {profiles.data?.length === 0 ? (

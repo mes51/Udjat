@@ -25,6 +25,7 @@ pnpm lint
 pnpm test
 pnpm build        # out/ にビルド
 pnpm dist         # release/ に zip(ポータブル)を生成
+node scripts/make-icons.mjs  # resources/icon.svg からアプリアイコン(ico / png)を作り直す
 ```
 
 ## データの置き場所

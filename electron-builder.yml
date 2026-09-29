@@ -21,6 +21,8 @@ electronLanguages:
   - ja
   - en-US
 win:
+  # build/icon.ico は scripts/make-icons.mjs が resources/icon.svg から生成する
+  icon: build/icon.ico
   target:
     - target: zip
       arch:
