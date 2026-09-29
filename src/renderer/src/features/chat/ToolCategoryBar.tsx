@@ -1,6 +1,12 @@
-import { Plug, Wrench } from 'lucide-react';
+import { Loader2, Plug, PlugZap, Wrench } from 'lucide-react';
 import type { Conversation } from '@shared/schemas';
-import { useConversationMutations, useSettingMutation, useTools } from '@renderer/lib/queries';
+import {
+  useConversationMutations,
+  useMcpConnectMutation,
+  useMcpServers,
+  useSettingMutation,
+  useTools,
+} from '@renderer/lib/queries';
 import { groupToolsByCategory } from '@renderer/lib/tools';
 import { cn } from '@renderer/lib/utils';
 
@@ -33,7 +39,14 @@ export function ToolCategoryBar({
   const tools = useTools();
   const toggle = useToolCategoryToggle(conversation);
   const cats = groupToolsByCategory(tools.data ?? []);
-  if (cats.length === 0) return null;
+  // 有効なのに未接続の MCP サーバーは、設定画面へ行かずにここから接続できる(M21)
+  const mcp = useMcpServers();
+  const connect = useMcpConnectMutation();
+  const offline = (mcp.data?.servers ?? [])
+    .filter((s) => s.enabled)
+    .map((s) => ({ server: s, status: mcp.data?.statuses.find((st) => st.id === s.id) }))
+    .filter(({ status }) => !status || status.state === 'disconnected' || status.state === 'error');
+  if (cats.length === 0 && offline.length === 0) return null;
   if (!toolsSupported) {
     return (
       <div className="text-fg-muted flex items-center gap-1 px-1 pb-1.5 text-[11px]">
@@ -77,6 +90,35 @@ export function ToolCategoryBar({
                 {active}/{c.tools.length}
               </span>
             )}
+          </button>
+        );
+      })}
+      {offline.map(({ server, status }) => {
+        const connecting = connect.isPending && connect.variables === server.id;
+        const error = status?.state === 'error' ? status.error : null;
+        return (
+          <button
+            key={`mcp-offline-${server.id}`}
+            type="button"
+            disabled={connecting}
+            title={
+              error
+                ? `接続に失敗しました: ${error}。クリックで再接続`
+                : 'MCP サーバーが未接続です。クリックで接続'
+            }
+            onClick={() => connect.mutate(server.id)}
+            className={cn(
+              'inline-flex items-center gap-1 rounded-full border border-dashed px-2 py-0.5 text-[11px] transition-colors',
+              error
+                ? 'border-danger/60 text-danger hover:bg-danger/10'
+                : 'border-border text-fg-muted hover:bg-surface-3',
+            )}
+          >
+            {connecting ? <Loader2 size={10} className="animate-spin" /> : <PlugZap size={10} />}
+            {server.name}
+            <span className="opacity-70">
+              {connecting ? '接続中…' : error ? 'エラー' : '未接続'}
+            </span>
           </button>
         );
       })}

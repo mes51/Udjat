@@ -1,7 +1,7 @@
 import type { QueryClient } from '@tanstack/react-query';
 import { useStreamStore } from '@renderer/state/stream-store';
 import { onEvent } from './ipc';
-import { invalidateConversationView, keys } from './queries';
+import { invalidateConversationView, keys, mcpKey } from './queries';
 
 /**
  * main からの chat:event を購読して stream-store に流し込む。
@@ -10,7 +10,12 @@ import { invalidateConversationView, keys } from './queries';
  * - run-end: 会話一覧(更新時刻)を更新
  */
 export function subscribeChatEvents(qc: QueryClient): () => void {
-  return onEvent('chat:event', (ev) => {
+  // MCP の接続状態は入力欄のチップにも出すので、どの画面でも取り直す(M21)
+  const offMcp = onEvent('mcp:status', () => {
+    void qc.invalidateQueries({ queryKey: mcpKey });
+    void qc.invalidateQueries({ queryKey: keys.tools });
+  });
+  const offChat = onEvent('chat:event', (ev) => {
     useStreamStore.getState().apply(ev);
     const t = ev.event.type;
     if (t === 'done' || t === 'path-changed') {
@@ -39,4 +44,8 @@ export function subscribeChatEvents(qc: QueryClient): () => void {
       setTimeout(() => void qc.invalidateQueries({ queryKey: keys.conversations }), 15000);
     }
   });
+  return () => {
+    offMcp();
+    offChat();
+  };
 }

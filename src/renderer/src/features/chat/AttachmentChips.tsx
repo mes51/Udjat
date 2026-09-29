@@ -223,20 +223,35 @@ export function PartMedia({
   type,
   attachmentId,
   name,
+  onOpen,
 }: {
   type: 'image' | 'video' | 'audio' | 'file';
   attachmentId: string;
   name?: string | undefined;
+  /** クリックでポップアップ表示する(M21)。無ければ画像は新しいウィンドウで開く */
+  onOpen?: (() => void) | undefined;
 }) {
   if (type === 'image') {
-    return (
+    const img = (
+      <img
+        src={mediaUrl(attachmentId)}
+        alt={name ?? ''}
+        className="border-border max-h-72 max-w-full rounded-md border object-contain"
+        loading="lazy"
+      />
+    );
+    return onOpen ? (
+      <button
+        type="button"
+        className="focus-visible:ring-accent cursor-zoom-in rounded-md focus:outline-none focus-visible:ring-2"
+        title={name ? `${name}(クリックで拡大)` : 'クリックで拡大'}
+        onClick={onOpen}
+      >
+        {img}
+      </button>
+    ) : (
       <a href={mediaUrl(attachmentId)} target="_blank" rel="noreferrer" title={name}>
-        <img
-          src={mediaUrl(attachmentId)}
-          alt={name ?? ''}
-          className="border-border max-h-72 max-w-full rounded-md border object-contain"
-          loading="lazy"
-        />
+        {img}
       </a>
     );
   }
@@ -250,7 +265,12 @@ export function PartMedia({
           className="max-h-64 max-w-full rounded"
         />
         <div className="text-fg-muted flex items-center gap-1 px-1 pt-1 text-[11px]">
-          <Film size={12} /> {name ?? attachmentId}
+          <Film size={12} /> <span className="min-w-0 flex-1 truncate">{name ?? attachmentId}</span>
+          {onOpen && (
+            <button type="button" className="hover:text-fg shrink-0 underline" onClick={onOpen}>
+              拡大
+            </button>
+          )}
         </div>
       </div>
     );
@@ -260,9 +280,23 @@ export function PartMedia({
       <audio src={mediaUrl(attachmentId)} controls preload="metadata" className="max-w-full" />
     );
   }
-  return (
-    <span className="border-border bg-surface inline-flex items-center gap-1 rounded-md border px-2 py-1 text-xs">
+  const chip = (
+    <>
       <FileIcon size={13} /> {name ?? attachmentId}
+    </>
+  );
+  return onOpen ? (
+    <button
+      type="button"
+      className="border-border bg-surface hover:bg-surface-3 inline-flex items-center gap-1 rounded-md border px-2 py-1 text-xs"
+      title="クリックで詳細(開く / 保存)"
+      onClick={onOpen}
+    >
+      {chip}
+    </button>
+  ) : (
+    <span className="border-border bg-surface inline-flex items-center gap-1 rounded-md border px-2 py-1 text-xs">
+      {chip}
     </span>
   );
 }

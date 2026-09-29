@@ -19,6 +19,7 @@ import { PartMedia } from './AttachmentChips';
 import { useRef, useState } from 'react';
 import type { Message, Part, Usage } from '@shared/schemas';
 import { Button } from '@renderer/components/ui/button';
+import { useLightbox, type LightboxItem } from '@renderer/components/ui/lightbox';
 import { cn, formatDuration, modelDisplayName } from '@renderer/lib/utils';
 import { useStreamStore, type StreamState } from '@renderer/state/stream-store';
 import { Markdown } from './Markdown';
@@ -189,6 +190,11 @@ function MediaParts({ message }: { message: Message }) {
       p.type !== 'text' && p.type !== 'reasoning',
   );
   if (media.length === 0) return null;
+  const items: LightboxItem[] = media.map((p) => ({
+    attachmentId: p.attachmentId,
+    kind: p.type,
+    name: p.name ?? p.attachmentId,
+  }));
   return (
     <div className="mt-2 flex flex-wrap gap-2">
       {media.map((p, i) => (
@@ -197,6 +203,7 @@ function MediaParts({ message }: { message: Message }) {
           type={p.type}
           attachmentId={p.attachmentId}
           name={p.name}
+          onOpen={() => useLightbox.getState().open(items, i)}
         />
       ))}
     </div>
@@ -205,7 +212,17 @@ function MediaParts({ message }: { message: Message }) {
 
 /** ツールが返した画像・動画(モデルに送られたもの)のサムネイル列 */
 function ToolMediaStrip({ message }: { message: Message }) {
-  const media = message.parts.filter((p) => p.type === 'image' || p.type === 'video');
+  const media = message.parts.filter(
+    (p): p is Extract<Part, { type: 'image' | 'video' }> =>
+      p.type === 'image' || p.type === 'video',
+  );
+  // ツールが付けたラベル(frame @00:12 など)は name に入っているので、そのまま見出しにする
+  const items: LightboxItem[] = media.map((p) => ({
+    attachmentId: p.attachmentId,
+    kind: p.type,
+    name: p.name ?? p.attachmentId,
+  }));
+  const open = (i: number) => useLightbox.getState().open(items, i);
   return (
     <div className="px-4 py-1 pl-14">
       <div className="text-fg-muted mb-1 flex items-center gap-1 text-[11px]">
@@ -214,12 +231,12 @@ function ToolMediaStrip({ message }: { message: Message }) {
       <div className="flex flex-wrap gap-1.5">
         {media.map((p, i) =>
           p.type === 'image' ? (
-            <a
+            <button
               key={`${p.attachmentId}-${i}`}
-              href={mediaUrl(p.attachmentId)}
-              target="_blank"
-              rel="noreferrer"
-              title={p.name}
+              type="button"
+              className="focus-visible:ring-accent cursor-zoom-in rounded focus:outline-none focus-visible:ring-2"
+              title={p.name ? `${p.name}(クリックで拡大)` : 'クリックで拡大'}
+              onClick={() => open(i)}
             >
               <img
                 src={mediaUrl(p.attachmentId)}
@@ -227,15 +244,16 @@ function ToolMediaStrip({ message }: { message: Message }) {
                 className="border-border h-24 rounded border object-cover"
                 loading="lazy"
               />
-            </a>
-          ) : p.type === 'video' ? (
+            </button>
+          ) : (
             <PartMedia
               key={`${p.attachmentId}-${i}`}
               type="video"
               attachmentId={p.attachmentId}
               name={p.name}
+              onOpen={() => open(i)}
             />
-          ) : null,
+          ),
         )}
       </div>
     </div>

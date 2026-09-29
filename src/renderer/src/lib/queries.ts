@@ -136,6 +136,24 @@ export function useContextUsage(conversationId: string | null) {
   });
 }
 
+/** MCP サーバーの一覧と接続状態(設定画面と入力欄の未接続チップで共用) */
+export const mcpKey = ['mcp'] as const;
+export function useMcpServers() {
+  return useQuery({ queryKey: mcpKey, queryFn: () => invoke('mcp:list') });
+}
+
+/** MCP サーバーへの接続(M21: 入力欄のチップから再接続) */
+export function useMcpConnectMutation() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => invoke('mcp:connect', { id }),
+    onSettled: () => {
+      void qc.invalidateQueries({ queryKey: mcpKey });
+      void qc.invalidateQueries({ queryKey: keys.tools });
+    },
+  });
+}
+
 /** 実行中のバックグラウンドタスク(M16)。conversationId 省略で全会話。念のため定期的にも取り直す */
 export function useBackgroundTasks(conversationId?: string | null) {
   return useQuery({

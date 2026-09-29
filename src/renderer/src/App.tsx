@@ -1,6 +1,7 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { useEffect } from 'react';
 import { Button } from '@renderer/components/ui/button';
+import { Lightbox } from '@renderer/components/ui/lightbox';
 import { subscribeChatEvents } from '@renderer/lib/chat-events';
 import { invoke } from '@renderer/lib/ipc';
 import {
@@ -100,6 +101,7 @@ export function App() {
         </main>
       )}
       <ProfilesDialog />
+      <Lightbox />
     </div>
   );
 }
