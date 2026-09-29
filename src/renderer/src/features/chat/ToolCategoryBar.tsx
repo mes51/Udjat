@@ -45,7 +45,8 @@ export function ToolCategoryBar({
   const offline = (mcp.data?.servers ?? [])
     .filter((s) => s.enabled)
     .map((s) => ({ server: s, status: mcp.data?.statuses.find((st) => st.id === s.id) }))
-    .filter(({ status }) => !status || status.state === 'disconnected' || status.state === 'error');
+    // 接続中も出しておく(HTTP の接続失敗は判明まで数十秒かかり、その間チップが消えると再試行できないように見える)
+    .filter(({ status }) => !status || status.state !== 'connected');
   if (cats.length === 0 && offline.length === 0) return null;
   if (!toolsSupported) {
     return (
@@ -94,7 +95,8 @@ export function ToolCategoryBar({
         );
       })}
       {offline.map(({ server, status }) => {
-        const connecting = connect.isPending && connect.variables === server.id;
+        const connecting =
+          (connect.isPending && connect.variables === server.id) || status?.state === 'connecting';
         const error = status?.state === 'error' ? status.error : null;
         return (
           <button
