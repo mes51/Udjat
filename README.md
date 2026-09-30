@@ -14,11 +14,17 @@
   <img src="https://img.shields.io/badge/Electron%20%2B%20React-TypeScript-blue" alt="Electron + React + TypeScript">
 </p>
 
-![Udjat の画面](docs/images/screenshot.png)
+<p align="center">
+  <img src="docs/images/screenshot.png" width="1000">
+</p>
 
 Udjat(ウジャト)は、自分の PC や LAN 内の別 PC で動いている llama.cpp / Unsloth Studio / LM Studio / Ollama / vLLM に接続して使うチャットアプリです。
 動画をそのまま添付すると、LLM が自分でツールを呼んで必要なフレームを取り出して理解します。Web 検索、ファイル操作、サンドボックスでのコード実行、MCP サーバーも同じ仕組みで使えます。
 クラウドには一切接続しません。会話も添付も、すべて手元の SQLite とフォルダに保存されます。
+
+## 注意
+
+このツールは現在開発中です。今後大幅な変更や互換性のない変更が追加される可能性があります。
 
 ## できること
 
@@ -59,6 +65,9 @@ Udjat(ウジャト)は、自分の PC や LAN 内の別 PC で動いている ll
 ### 配布版(Windows)
 
 1. GitHub の Releases から `Udjat-<version>-win-x64.zip` をダウンロードする
+
+   https://github.com/mes51/Udjat/releases
+
 2. 好きな場所に展開し、`Udjat.exe` を起動する
 
 zip にはポータブル運用のための `portable.marker` が同梱されており、会話や添付は exe の隣の `data/` フォルダに保存されます。フォルダごと移動やバックアップができます。
