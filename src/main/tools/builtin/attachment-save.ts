@@ -60,7 +60,7 @@ export function createAttachmentSaveTool(
       if (exists && args['overwrite'] !== true)
         return fail(`既に存在します: ${target}(上書きするなら overwrite: true)`);
       await fs.mkdir(dirname(target), { recursive: true });
-      await fs.copyFile(store.pathOf(a), target);
+      await fs.copyFile(await store.ensureFile(a), target);
       return ok(
         JSON.stringify({ saved_to: target, name: a.originalName, size: a.size, mime: a.mime }),
       );

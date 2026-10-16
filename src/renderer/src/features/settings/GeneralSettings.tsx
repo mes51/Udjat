@@ -8,6 +8,7 @@ import { Section, SectionTitle } from '@renderer/components/ui/section';
 import { invoke } from '@renderer/lib/ipc';
 import { useSetting, useSettingMutation } from '@renderer/lib/queries';
 import { setTheme, type ThemeSetting } from '@renderer/lib/theme';
+import { DerivedCachePanel } from './DerivedCacheSettings';
 
 /**
  * 一般タブ。値はすべて「変更した時 / フォーカスを外した時」に保存する(保存ボタンは置かない)。
@@ -316,6 +317,25 @@ export function GeneralSettings() {
               return Number.isFinite(v) && v > 0 ? Math.min(200_000, Math.max(1_000, v)) : 30_000;
             }}
             format={(v) => String(typeof v === 'number' ? v : 30_000)}
+          />
+        </div>
+      </Section>
+      <Section className="gap-3">
+        <SectionTitle description="動画のフレームやコンタクトシート、クリップ、PDF のページ画像はキャッシュとして扱います。上限を超えると古いものから消し、会話の削除時はその会話の分を消します。消したものは、表示やモデルへの送信で必要になった時に元の添付から作り直します">
+          フレームのキャッシュ
+        </SectionTitle>
+        <DerivedCachePanel />
+        <div className="grid max-w-2xl grid-cols-3 gap-3">
+          <SettingInput
+            settingKey="media.derivedCacheMaxMB"
+            label="上限 (MB)"
+            hint="既定 1024。0 で無制限"
+            type="number"
+            parse={(t) => {
+              const v = Number(t);
+              return Number.isFinite(v) && v >= 0 ? Math.round(v) : 1024;
+            }}
+            format={(v) => String(typeof v === 'number' ? v : 1024)}
           />
         </div>
       </Section>

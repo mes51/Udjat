@@ -176,6 +176,9 @@ export class MediaStore {
     const sha256 = hashFile(path);
     const existing = this.repo.getBySha(sha256);
     if (existing) {
+      // 同じ内容のレコードがある。キャッシュとしてファイルだけ消してあれば(M23)この機会に戻す
+      const dest = this.pathOf(existing);
+      if (!existsSync(dest)) copyFileSync(path, dest);
       this.cleanupScratch(path);
       return existing;
     }
@@ -189,8 +192,156 @@ export class MediaStore {
     return this.repo.create({ sha256, mime, ext, originalName, size: statSync(dest).size, meta });
   }
 
-  readBase64(a: Attachment): string {
-    return readFileSync(this.pathOf(a)).toString('base64');
+  /** 内容を base64 で読む。キャッシュから消した派生物なら先に作り直す(M23) */
+  async readBase64(a: Attachment): Promise<string> {
+    return readFileSync(await this.ensureFile(a)).toString('base64');
+  }
+
+  // ---- 派生物のキャッシュ(M23) ----
+  // フレーム・コンタクトシート・クリップ等の派生物は、レコード(メッセージからの参照とメタ情報)を残したまま
+  // ファイルだけを消せる。必要になった時は restorer(VideoOps.regenerate)が元の添付から作り直す。
+
+  private restorer: ((a: Attachment) => Promise<boolean>) | null = null;
+  private readonly restoring = new Map<string, Promise<string>>();
+
+  /** ファイルが無い派生物を作り直す関数を登録する。true を返せば pathOf(a) にファイルがある */
+  setRestorer(fn: (a: Attachment) => Promise<boolean>): void {
+    this.restorer = fn;
+  }
+
+  /** 派生物か(キャッシュとして消して良いもの) */
+  isDerived(a: Attachment): boolean {
+    return a.meta.derivedFrom !== undefined;
+  }
+
+  /** ファイルが消えているか */
+  isEvicted(a: Attachment): boolean {
+    return !existsSync(this.pathOf(a));
+  }
+
+  /**
+   * ファイルのパスを返す。消してあれば作り直してから返す(同じ添付の同時要求は 1 回にまとめる)。
+   * 作り直せなければ例外
+   */
+  async ensureFile(a: Attachment): Promise<string> {
+    const path = this.pathOf(a);
+    if (existsSync(path)) return path;
+    const inflight = this.restoring.get(a.id);
+    if (inflight) return inflight;
+    const p = (async () => {
+      const restored = this.restorer ? await this.restorer(a) : false;
+      if (!restored || !existsSync(path)) {
+        throw new Error(
+          this.isDerived(a)
+            ? `${a.originalName} はキャッシュから削除されていて、元の添付からも作り直せませんでした`
+            : `添付ファイルが見つかりません: ${a.originalName}`,
+        );
+      }
+      return path;
+    })();
+    this.restoring.set(a.id, p);
+    try {
+      return await p;
+    } finally {
+      this.restoring.delete(a.id);
+    }
+  }
+
+  /** 作り直した派生物のサイズを反映する */
+  updateSize(a: Attachment, size: number): void {
+    this.repo.updateSize(a.id, size);
+  }
+
+  /** 派生物のファイルを消す(レコードは残す)。消したバイト数を返す(既に無ければ 0) */
+  evict(a: Attachment): number {
+    if (!this.isDerived(a)) return 0;
+    const path = this.pathOf(a);
+    let size = 0;
+    try {
+      size = statSync(path).size;
+      rmSync(path, { force: true });
+    } catch {
+      return 0;
+    }
+    return size;
+  }
+
+  /** 派生物のキャッシュ状況。conversationId を指定すればその会話に付いているものだけ */
+  derivedStats(conversationId?: string): { count: number; bytes: number; evicted: number } {
+    let count = 0;
+    let bytes = 0;
+    let evicted = 0;
+    for (const a of this.repo.listDerived(conversationId)) {
+      count++;
+      try {
+        bytes += statSync(this.pathOf(a)).size;
+      } catch {
+        evicted++;
+      }
+    }
+    return { count, bytes, evicted };
+  }
+
+  /** 派生物のファイルをまとめて消す(会話を指定しなければ全部)。消した件数とバイト数を返す */
+  evictDerived(conversationId?: string): { count: number; bytes: number } {
+    let count = 0;
+    let bytes = 0;
+    for (const a of this.repo.listDerived(conversationId)) {
+      const n = this.evict(a);
+      if (n > 0) {
+        count++;
+        bytes += n;
+      }
+    }
+    return { count, bytes };
+  }
+
+  /**
+   * 派生物の合計が上限を超えていたら、古いものから消して上限内に収める。
+   * 直近 1 時間に作ったものは(今まさに使っている可能性が高いので)残す
+   */
+  enforceDerivedLimit(maxBytes: number, now = Date.now()): { count: number; bytes: number } {
+    const out = { count: 0, bytes: 0 };
+    if (!(maxBytes > 0)) return out;
+    const present: { a: Attachment; size: number }[] = [];
+    let total = 0;
+    for (const a of this.repo.listDerived()) {
+      try {
+        const size = statSync(this.pathOf(a)).size;
+        present.push({ a, size });
+        total += size;
+      } catch {
+        /* 既に消えている */
+      }
+    }
+    if (total <= maxBytes) return out;
+    present.sort((x, y) => x.a.createdAt - y.a.createdAt);
+    for (const { a, size } of present) {
+      if (total <= maxBytes) break;
+      if (now - a.createdAt < 60 * 60 * 1000) continue;
+      if (this.evict(a) > 0) {
+        total -= size;
+        out.count++;
+        out.bytes += size;
+      }
+    }
+    return out;
+  }
+
+  /** どのメッセージからも参照されなくなった派生物をレコードごと消す(会話の削除直後に呼ぶ) */
+  gcUnreferencedDerived(): number {
+    let n = 0;
+    for (const a of this.repo.listUnreferenced()) {
+      if (!this.isDerived(a)) continue;
+      this.repo.delete(a.id);
+      try {
+        rmSync(this.pathOf(a), { force: true });
+      } catch {
+        /* ignore */
+      }
+      n++;
+    }
+    return n;
   }
 
   private cleanupScratch(path: string): void {

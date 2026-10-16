@@ -48,7 +48,7 @@ export function createAttachmentTextTool(store: MediaStore): RegisteredTool {
         );
       if (a.mime === 'application/pdf') return fail(`${id} は PDF です。pdf_text を使ってください`);
       if (a.size > MAX_BYTES) return fail(`大きすぎます(${a.size} バイト、上限 ${MAX_BYTES})`);
-      const buf = await fs.readFile(store.pathOf(a));
+      const buf = await fs.readFile(await store.ensureFile(a));
       if (!looksText(a.mime, a.originalName, buf.subarray(0, 8192)))
         return fail(`${a.originalName} はテキストではありません (${a.mime})`);
       const maxChars = Math.floor(num(args, 'max_chars', DEFAULT_MAX_CHARS, 100, MAX_CHARS));

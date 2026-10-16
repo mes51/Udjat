@@ -72,16 +72,25 @@ export class MediaResolver {
         : undefined;
       if (!caps.image)
         return { text: `[添付画像: ${part.name ?? a.originalName}](このモデルは画像を扱えません)` };
-      const sendable = await this.ops.resizedImage(a, this.opts.imageMaxEdge ?? 1568, signal);
-      const out: ResolvedPart = {
-        image: {
-          mime: sendable.mime,
-          base64: this.store.readBase64(sendable),
-          name: a.originalName,
-        },
-      };
-      if (label) out.text = label;
-      return out;
+      // キャッシュから消したフレーム等は readBase64 の中で元動画から作り直される(M23)。
+      // 作り直せない(元動画も消えている)時は注記だけ送る
+      try {
+        const sendable = await this.ops.resizedImage(a, this.opts.imageMaxEdge ?? 1568, signal);
+        const out: ResolvedPart = {
+          image: {
+            mime: sendable.mime,
+            base64: await this.store.readBase64(sendable),
+            name: a.originalName,
+          },
+        };
+        if (label) out.text = label;
+        return out;
+      } catch (e) {
+        if (signal?.aborted) throw e;
+        return {
+          text: `${label ?? `[image: ${part.name ?? a.originalName}]`} (unavailable: ${(e as Error).message.slice(0, 200)})`,
+        };
+      }
     }
 
     if (part.type === 'video') {
@@ -90,7 +99,11 @@ export class MediaResolver {
         const nc = this.opts.nativeClip;
         const opts = typeof nc === 'function' ? nc() : (nc ?? DEFAULT_NATIVE_CLIP);
         const clip = await this.ops.nativeClip(a, opts, signal, part.range);
-        out.video = { mime: clip.mime, base64: this.store.readBase64(clip), name: a.originalName };
+        out.video = {
+          mime: clip.mime,
+          base64: await this.store.readBase64(clip),
+          name: a.originalName,
+        };
         const from = clip.meta.derivedLabel ?? '';
         const range = part.range
           ? `the user-selected range ${fmt(part.range.startMs)}-${fmt(part.range.endMs)}`
@@ -114,7 +127,7 @@ export class MediaResolver {
       const dur = a.meta.durationMs !== undefined ? fmt(a.meta.durationMs) : '?';
       return {
         text: `[attached audio: name="${a.originalName}", duration=${dur}${(a.meta.durationMs ?? 0) > maxSeconds * 1000 ? `, first ${maxSeconds}s only` : ''}]`,
-        audio: { mime: mp3.mime, base64: this.store.readBase64(mp3), name: a.originalName },
+        audio: { mime: mp3.mime, base64: await this.store.readBase64(mp3), name: a.originalName },
       };
     }
     if (a.mime === 'application/pdf' && this.pdf) {

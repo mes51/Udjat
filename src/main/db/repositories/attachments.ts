@@ -76,6 +76,31 @@ export class AttachmentRepository {
     this.db.prepare('UPDATE attachments SET meta = ? WHERE id = ?').run(JSON.stringify(meta), id);
   }
 
+  /** 作り直した派生物のサイズを反映する(M23。sha256 は元のまま) */
+  updateSize(id: string, size: number): void {
+    this.db.prepare('UPDATE attachments SET size = ? WHERE id = ?').run(size, id);
+  }
+
+  /** 派生物(derivedFrom を持つ添付)。conversationId を指定すればその会話のメッセージに付いているものだけ */
+  listDerived(conversationId?: string): Attachment[] {
+    const rows = (conversationId
+      ? this.db
+          .prepare(
+            `SELECT DISTINCT a.* FROM attachments a
+               JOIN message_attachments ma ON ma.attachment_id = a.id
+               JOIN messages m ON m.id = ma.message_id
+               WHERE m.conversation_id = ? AND a.meta LIKE '%"derivedFrom"%'
+               ORDER BY a.created_at`,
+          )
+          .all(conversationId)
+      : this.db
+          .prepare(
+            `SELECT * FROM attachments WHERE meta LIKE '%"derivedFrom"%' ORDER BY created_at`,
+          )
+          .all()) as unknown as Row[];
+    return rows.map(fromRow).filter((a) => a.meta.derivedFrom !== undefined);
+  }
+
   /** メッセージとの関連付け(参照カウントを増やす) */
   link(messageId: string, attachmentId: string): void {
     const r = this.db

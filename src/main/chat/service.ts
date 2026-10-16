@@ -60,6 +60,8 @@ export interface MediaServices {
   ops: VideoOps;
   attachments: AttachmentRepository;
   resolver: MediaResolver;
+  /** ツール結果の画像・動画を配送した後に呼ぶ(派生物キャッシュの上限維持。M23) */
+  onMediaDelivered?: () => void;
 }
 
 export interface SendInput {
@@ -458,6 +460,7 @@ export class ChatService {
       parts,
     });
     for (const m of mediaList) this.deps.media.attachments.link(mediaMsg.id, m.attachmentId);
+    this.deps.media.onMediaDelivered?.();
     return mediaMsg;
   }
 

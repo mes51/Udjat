@@ -16,6 +16,7 @@ import {
 } from '@renderer/lib/queries';
 import { groupToolsByCategory } from '@renderer/lib/tools';
 import { cn, modelDisplayName } from '@renderer/lib/utils';
+import { DerivedCachePanel } from '../settings/DerivedCacheSettings';
 import { useToolCategoryToggle } from './ToolCategoryBar';
 
 type NumKey =
@@ -235,6 +236,12 @@ export function ConversationSettings({ conversation }: { conversation: Conversat
         <ModelCapabilities profileId={conversation.serverProfileId} model={conversation.model} />
       )}
       <ConversationTools conversation={conversation} />
+      <section>
+        <SectionTitle description="動画のフレームやコンタクトシート、クリップ、PDF のページ画像はキャッシュです。消しても会話の記録は残り、表示やモデルへの送信で必要になれば元の添付から作り直します">
+          フレームのキャッシュ
+        </SectionTitle>
+        <DerivedCachePanel conversationId={conversation.id} />
+      </section>
     </div>
   );
 }

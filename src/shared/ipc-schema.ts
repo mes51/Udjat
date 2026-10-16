@@ -10,6 +10,7 @@ import {
   ContextUsageSchema,
   ConversationPatchSchema,
   ConversationSchema,
+  DerivedCacheStatsSchema,
   McpServerInputSchema,
   McpServerSchema,
   McpServerStatusSchema,
@@ -277,6 +278,16 @@ export const ipcInvokeSchema = {
       ffmpeg: z.object({ path: z.string(), available: z.boolean(), custom: z.boolean() }),
       ffprobe: z.object({ path: z.string(), available: z.boolean(), custom: z.boolean() }),
     }),
+  },
+  /** 派生物(フレーム・コンタクトシート・クリップ等)のキャッシュ状況。conversationId 省略で全体(M23) */
+  'media:derivedStats': {
+    input: z.object({ conversationId: z.string().optional() }),
+    output: DerivedCacheStatsSchema,
+  },
+  /** 派生物のファイルを消す(レコードは残り、必要になれば元の添付から作り直す)。消した件数とバイト数 */
+  'media:evictDerived': {
+    input: z.object({ conversationId: z.string().optional() }),
+    output: z.object({ count: z.number(), bytes: z.number() }),
   },
   /** 設定・プロファイル・MCP サーバー・ツールポリシーをまとめた JSON */
   'settings:exportAll': {

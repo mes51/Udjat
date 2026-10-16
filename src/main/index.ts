@@ -40,15 +40,29 @@ protocol.registerSchemesAsPrivileged([
 ]);
 
 function registerMediaProtocol(media: MediaStore): void {
-  protocol.handle('udjat-media', (request) => {
+  protocol.handle('udjat-media', async (request) => {
     const url = new URL(request.url);
     const id = url.pathname.replace(/^\/+/, '');
     const a = url.hostname === 'attachment' && id ? media.get(id) : null;
     if (!a) return new Response('not found', { status: 404 });
-    return net.fetch(pathToFileURL(media.pathOf(a)).href, {
+    // キャッシュから消したフレーム等は、表示が必要になった時に元の添付から作り直す(M23)
+    let path: string;
+    try {
+      path = await media.ensureFile(a);
+    } catch (e) {
+      return new Response((e as Error).message, { status: 404 });
+    }
+    return net.fetch(pathToFileURL(path).href, {
       headers: { 'Content-Type': a.mime },
     });
   });
+}
+
+/** 設定 media.derivedCacheMaxMB(既定 1024。0 なら無制限)をバイト数で */
+function derivedCacheMaxBytes(settings: SettingsRepository): number {
+  const v = settings.get('media.derivedCacheMaxMB');
+  const mb = typeof v === 'number' && Number.isFinite(v) ? v : 1024;
+  return mb > 0 ? mb * 1024 * 1024 : 0;
 }
 
 let db: Database | null = null;
@@ -120,7 +134,9 @@ if (!app.requestSingleInstanceLock()) {
       { mediaDir: paths.media, cacheDir: paths.cache },
       pdf,
     );
-    const ops = new VideoOps(media, ffmpeg);
+    const ops = new VideoOps(media, ffmpeg, pdf);
+    // ファイルを消した派生物(フレーム等)は、必要になった時に元の添付から作り直す(M23)
+    media.setRestorer((a) => ops.regenerate(a));
     registerMediaProtocol(media);
 
     const tools = new ToolRegistry(db);
@@ -155,6 +171,8 @@ if (!app.requestSingleInstanceLock()) {
       try {
         const r = media.gc();
         if (r.deletedAttachments || r.deletedFiles) console.log('[media] gc:', r);
+        const e = media.enforceDerivedLimit(derivedCacheMaxBytes(settings));
+        if (e.count) console.log('[media] derived cache trimmed:', e);
       } catch (e) {
         console.warn('[media] gc failed:', e);
       }
@@ -182,6 +200,14 @@ if (!app.requestSingleInstanceLock()) {
         store: media,
         ops,
         attachments,
+        // ツールが画像を返すたびに、派生物のキャッシュを上限内に収める(古いものから消す。M23)
+        onMediaDelivered: () => {
+          try {
+            media.enforceDerivedLimit(derivedCacheMaxBytes(settings));
+          } catch (e) {
+            console.warn('[media] derived cache trim failed:', e);
+          }
+        },
         resolver: new MediaResolver(
           media,
           ops,

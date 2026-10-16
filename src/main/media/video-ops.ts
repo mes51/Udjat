@@ -1,10 +1,14 @@
-import type { Attachment } from '@shared/schemas';
+import { copyFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import type { Attachment, Derivation } from '@shared/schemas';
 import type { FfmpegService } from './ffmpeg';
+import type { PdfService } from './pdf';
 import type { MediaStore } from './store';
 
 /**
  * 動画に対する派生物の生成。結果は添付として登録し(sha256 で重複排除)、
  * 同じパラメータの再要求はメモリ上のキーで再利用する。
+ * 派生物にはその作り方(meta.derivation)を残し、ファイルをキャッシュとして消した後でも
+ * regenerate() で元の添付から作り直せる(M23)。
  */
 
 export interface ContactSheetOptions {
@@ -29,6 +33,7 @@ export class VideoOps {
   constructor(
     private readonly store: MediaStore,
     private readonly ffmpeg: FfmpegService,
+    private readonly pdf?: PdfService,
   ) {}
 
   durationMs(video: Attachment): number {
@@ -39,7 +44,8 @@ export class VideoOps {
     const id = this.derived.get(key);
     if (id) {
       const a = this.store.get(id);
-      if (a) return a;
+      // ファイルを消してあれば produce し直す(同じ内容なら addFile がレコードを再利用してファイルを戻す)
+      if (a && !this.store.isEvicted(a)) return a;
     }
     const a = await produce();
     this.derived.set(key, a.id);
@@ -73,6 +79,7 @@ export class VideoOps {
         mime: 'image/jpeg',
         derivedFrom: video.id,
         derivedLabel: `contact-sheet ${cols}x${rows} ${fmt(startMs)}-${fmt(endMs)}`,
+        derivation: { kind: 'sheet', startMs, endMs, cols, rows, tileWidth },
       });
     });
     if (timestampsMs.length === 0) {
@@ -104,6 +111,7 @@ export class VideoOps {
             derivedFrom: video.id,
             derivedLabel: `frame @${fmt(t)}`,
             timestampMs: t,
+            derivation: { kind: 'frame', timestampMs: t, width },
           });
         }),
       );
@@ -145,6 +153,7 @@ export class VideoOps {
         mime: 'video/mp4',
         derivedFrom: video.id,
         derivedLabel: `clip ${fmt(s)}-${fmt(e)}`,
+        derivation: { kind: 'clip', startMs: s, endMs: e, width, fps },
       });
     });
   }
@@ -164,6 +173,7 @@ export class VideoOps {
         mime: 'audio/mpeg',
         derivedFrom: audio.id,
         derivedLabel: `audio mono16k ${maxSeconds}s`,
+        derivation: { kind: 'audio', maxSeconds },
       });
     });
   }
@@ -209,9 +219,105 @@ export class VideoOps {
         mime: 'image/jpeg',
         derivedFrom: image.id,
         derivedLabel: `resized ${maxEdge}px`,
+        derivation: { kind: 'resize', maxEdge },
       });
     });
   }
+
+  /**
+   * キャッシュから消した派生物を、元の添付から同じ指定で作り直して元のパスに置く(M23)。
+   * 元の添付が無い、作り方が分からない、変換に失敗した時は false。
+   * sha256 はレコードのものを保ち(ffmpeg の出力は普通は同じバイト列になるが、違っても構わない)、サイズだけ更新する
+   */
+  async regenerate(a: Attachment, signal?: AbortSignal): Promise<boolean> {
+    const d = derivationOf(a);
+    if (!d || !a.meta.derivedFrom) return false;
+    const src = this.store.get(a.meta.derivedFrom);
+    if (!src || this.store.isEvicted(src)) return false;
+    const srcPath = this.store.pathOf(src);
+    const tmp = this.store.scratchPath(`regen-${a.id}.${a.ext}`);
+    try {
+      switch (d.kind) {
+        case 'frame':
+          await this.ffmpeg.extractFrame(srcPath, d.timestampMs, tmp, { width: d.width }, signal);
+          break;
+        case 'sheet':
+          await this.ffmpeg.contactSheet(srcPath, tmp, d, signal);
+          break;
+        case 'clip':
+          await this.ffmpeg.clip(srcPath, tmp, d, signal);
+          break;
+        case 'audio':
+          await this.ffmpeg.transcodeAudio(srcPath, tmp, { maxSeconds: d.maxSeconds }, signal);
+          break;
+        case 'resize':
+          await this.ffmpeg.resizeImage(srcPath, tmp, d.maxEdge, signal);
+          break;
+        case 'pdf-page': {
+          if (!this.pdf) return false;
+          const [page] = await this.pdf.renderPages(srcPath, [d.page], { width: d.width });
+          if (!page) return false;
+          writeFileSync(tmp, page.jpeg);
+          break;
+        }
+      }
+      const dest = this.store.pathOf(a);
+      copyFileSync(tmp, dest);
+      this.store.updateSize(a, statSync(dest).size);
+      return true;
+    } catch (e) {
+      console.warn(`[media] regenerate failed for ${a.originalName}:`, (e as Error).message);
+      return false;
+    } finally {
+      try {
+        rmSync(tmp, { force: true });
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+}
+
+/**
+ * 派生物の作り方。meta.derivation があればそれ、無い古い派生物はラベルとメタ情報から推定する
+ * (フレーム: timestampMs と実際の幅、コンタクトシート: "contact-sheet 4x4 0.0s-95.0s"、クリップ: "clip 0.0s-60.0s")
+ */
+export function derivationOf(a: Attachment): Derivation | null {
+  if (a.meta.derivation) return a.meta.derivation;
+  const label = a.meta.derivedLabel ?? '';
+  if (a.meta.timestampMs !== undefined && a.meta.width)
+    return { kind: 'frame', timestampMs: a.meta.timestampMs, width: a.meta.width };
+  let m = /^contact-sheet (\d+)x(\d+) ([\d.]+)s-([\d.]+)s$/.exec(label);
+  if (m) {
+    const cols = Number(m[1]);
+    const rows = Number(m[2]);
+    // タイル幅はシート全体の幅から逆算(作成時の既定は 256)
+    const tileWidth = a.meta.width ? Math.round(a.meta.width / cols) : 256;
+    return {
+      kind: 'sheet',
+      startMs: Math.round(Number(m[3]) * 1000),
+      endMs: Math.round(Number(m[4]) * 1000),
+      cols,
+      rows,
+      tileWidth,
+    };
+  }
+  m = /^clip ([\d.]+)s-([\d.]+)s$/.exec(label);
+  if (m && a.meta.width && a.meta.fps)
+    return {
+      kind: 'clip',
+      startMs: Math.round(Number(m[1]) * 1000),
+      endMs: Math.round(Number(m[2]) * 1000),
+      width: a.meta.width,
+      fps: Math.round(a.meta.fps * 100) / 100,
+    };
+  m = /^resized (\d+)px$/.exec(label);
+  if (m) return { kind: 'resize', maxEdge: Number(m[1]) };
+  m = /^audio mono16k (\d+)s$/.exec(label);
+  if (m) return { kind: 'audio', maxSeconds: Number(m[1]) };
+  m = /^page (\d+)$/.exec(label);
+  if (m && a.meta.width) return { kind: 'pdf-page', page: Number(m[1]), width: a.meta.width };
+  return null;
 }
 
 function clamp(v: number, min: number, max: number): number {

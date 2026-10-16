@@ -116,6 +116,7 @@ export function createPdfTools({ store, pdf }: PdfToolDeps): RegisteredTool[] {
         const img = await store.addBytes(r.jpeg, `${a.originalName}.p${r.page}.jpg`, 'image/jpeg', {
           derivedFrom: a.id,
           derivedLabel: `page ${r.page}`,
+          derivation: { kind: 'pdf-page', page: r.page, width },
         });
         media.push({
           attachmentId: img.id,

@@ -58,6 +58,8 @@ export const IPC_INVOKE_CHANNELS = [
   'mcp:importJson',
   'mcp:exportJson',
   'media:binaries',
+  'media:derivedStats',
+  'media:evictDerived',
   'settings:exportAll',
   'settings:importAll',
   'files:open',

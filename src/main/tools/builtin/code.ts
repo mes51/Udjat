@@ -264,7 +264,7 @@ export function createCodeTools({ store, callTool }: CodeToolDeps): RegisteredTo
           if (!a) throw new Error(`attachment not found: ${id}`);
           if (a.size > MAX_FILE_BYTES)
             throw new Error(`attachment too large (${a.size} bytes, max ${MAX_FILE_BYTES})`);
-          const buf = await fs.readFile(store.pathOf(a));
+          const buf = await fs.readFile(await store.ensureFile(a));
           return encoding === 'base64' ? buf.toString('base64') : buf.toString('utf8');
         },
         async download(url, opts) {

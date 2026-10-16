@@ -135,7 +135,10 @@ export function registerIpcHandlers(ctx: AppContext): void {
   handleIpc('conversations:delete', ({ id }) => {
     const running = ctx.chat.isRunning(id);
     if (running) ctx.chat.abort(running);
-    return ctx.conversations.delete(id);
+    const deleted = ctx.conversations.delete(id);
+    // この会話だけが使っていたフレーム等はすぐに消す(元の添付は通常の gc に任せる)。M23
+    if (deleted) ctx.media.gcUnreferencedDerived();
+    return deleted;
   });
 
   // --- メッセージ ---
@@ -242,16 +245,19 @@ export function registerIpcHandlers(ctx: AppContext): void {
     };
     const r = win ? await dialog.showSaveDialog(win, opts) : await dialog.showSaveDialog(opts);
     if (r.canceled || !r.filePath) return null;
-    copyFileSync(ctx.media.pathOf(a), r.filePath);
+    copyFileSync(await ctx.media.ensureFile(a), r.filePath);
     return r.filePath;
   });
   handleIpc('attachments:open', async ({ id }) => {
     const a = ctx.media.get(id);
     if (!a) throw new Error('添付が見つかりません');
-    const err = await shell.openPath(ctx.media.pathOf(a));
+    const err = await shell.openPath(await ctx.media.ensureFile(a));
     if (err) throw new Error(err);
     return true;
   });
+  // 派生物(フレーム等)のキャッシュ(M23)
+  handleIpc('media:derivedStats', ({ conversationId }) => ctx.media.derivedStats(conversationId));
+  handleIpc('media:evictDerived', ({ conversationId }) => ctx.media.evictDerived(conversationId));
 
   // --- 設定のバックアップ、ffmpeg ---
   handleIpc('settings:exportAll', ({ includeSecrets }) =>

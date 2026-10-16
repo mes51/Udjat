@@ -181,6 +181,22 @@ export function useCompactMutation(conversationId: string) {
   });
 }
 
+/** 派生物(フレーム等)のキャッシュ状況(M23)。conversationId 省略で全体 */
+export function useDerivedStats(conversationId?: string) {
+  return useQuery({
+    queryKey: ['media:derivedStats', conversationId ?? 'all'],
+    queryFn: () => invoke('media:derivedStats', conversationId ? { conversationId } : {}),
+  });
+}
+export function useEvictDerivedMutation() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (conversationId?: string) =>
+      invoke('media:evictDerived', conversationId ? { conversationId } : {}),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['media:derivedStats'] }),
+  });
+}
+
 export function useTools() {
   return useQuery({ queryKey: keys.tools, queryFn: () => invoke('tools:list') });
 }

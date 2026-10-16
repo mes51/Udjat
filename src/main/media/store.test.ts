@@ -68,7 +68,7 @@ describe.skipIf(!available.ffmpeg)('MediaStore', () => {
   it('stores bytes, links to messages and counts references', async () => {
     const b = await store.addBytes(Buffer.from('hello'), 'note.txt', 'text/plain');
     expect(b.meta).toEqual({ kind: 'file' });
-    expect(store.readBase64(b)).toBe(Buffer.from('hello').toString('base64'));
+    expect(await store.readBase64(b)).toBe(Buffer.from('hello').toString('base64'));
     expect(repo.listUnreferenced().map((x) => x.id)).toContain(b.id);
     db.exec("INSERT INTO conversations (id, title, created_at, updated_at) VALUES ('c', '', 0, 0)");
     db.exec(
@@ -101,6 +101,59 @@ describe.skipIf(!available.ffmpeg)('MediaStore', () => {
     expect(existsSync(join(dir, 'media', 'deadbeef.bin'))).toBe(false);
     // メッセージに紐づいた添付(前のテストの note.txt)は残る
     expect(repo.listAll().some((a) => a.originalName === 'note.txt')).toBe(true);
+  });
+
+  it('evicts derived files as cache and restores them through the restorer (M23)', async () => {
+    const src = await store.addFile(join(dir, 'pic.png'));
+    const derived = await store.addBytes(Buffer.from('frame-bytes'), 'f.jpg', 'image/jpeg', {
+      derivedFrom: src.id,
+      derivedLabel: 'frame @1.0s',
+      timestampMs: 1000,
+      derivation: { kind: 'frame', timestampMs: 1000, width: 320 },
+    });
+    const plain = await store.addBytes(Buffer.from('not-derived'), 'p.txt', 'text/plain');
+    expect(store.isDerived(derived)).toBe(true);
+    expect(store.isDerived(plain)).toBe(false);
+    // 派生物でないものは消せない
+    expect(store.evict(plain)).toBe(0);
+    expect(store.evict(derived)).toBe('frame-bytes'.length);
+    expect(store.isEvicted(derived)).toBe(true);
+    expect(store.get(derived.id)).not.toBeNull();
+    expect(store.derivedStats()).toMatchObject({ evicted: 1 });
+    // restorer が無ければ読めない
+    await expect(store.readBase64(derived)).rejects.toThrow(/作り直せません/);
+    // restorer を登録すると作り直して読める(同時要求は 1 回にまとまる)
+    let calls = 0;
+    store.setRestorer(async (a) => {
+      calls++;
+      await new Promise((r) => setTimeout(r, 20));
+      writeFileSync(store.pathOf(a), 'regenerated');
+      return true;
+    });
+    const [x, y] = await Promise.all([store.readBase64(derived), store.readBase64(derived)]);
+    expect(calls).toBe(1);
+    expect(Buffer.from(x, 'base64').toString()).toBe('regenerated');
+    expect(y).toBe(x);
+    // 同じ内容を addFile し直すと、消してあったファイルが戻る
+    store.evict(derived);
+    const p = join(dir, 'again.jpg');
+    writeFileSync(p, 'frame-bytes');
+    const again = await store.addFile(p, {
+      mime: 'image/jpeg',
+      derivedFrom: src.id,
+      derivation: { kind: 'frame', timestampMs: 1000, width: 320 },
+    });
+    expect(again.id).toBe(derived.id);
+    expect(store.isEvicted(derived)).toBe(false);
+    // 上限: 直近 1 時間のものは残し、古いものから消す
+    db.prepare('UPDATE attachments SET created_at = ? WHERE id = ?').run(1000, derived.id);
+    const trimmed = store.enforceDerivedLimit(1, Date.now());
+    expect(trimmed.count).toBe(1);
+    expect(store.isEvicted(derived)).toBe(true);
+    // 未参照の派生物はレコードごと消える
+    expect(store.gcUnreferencedDerived()).toBeGreaterThanOrEqual(1);
+    expect(store.get(derived.id)).toBeNull();
+    expect(store.get(plain.id)).not.toBeNull();
   });
 
   it('records probe failures without throwing', async () => {

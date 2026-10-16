@@ -141,8 +141,47 @@ export const AttachmentMetaSchema = z.object({
   derivedLabel: z.string().optional(),
   /** 派生フレームの時刻(ミリ秒) */
   timestampMs: z.number().optional(),
+  /**
+   * 派生物の作り方(M23)。ファイルをキャッシュとして消しても、元の添付からこの指定で作り直せる。
+   * 無い古い派生物は derivedLabel / width / timestampMs から推定する
+   */
+  derivation: z
+    .discriminatedUnion('kind', [
+      z.object({ kind: z.literal('frame'), timestampMs: z.number(), width: z.number() }),
+      z.object({
+        kind: z.literal('sheet'),
+        startMs: z.number(),
+        endMs: z.number(),
+        cols: z.number(),
+        rows: z.number(),
+        tileWidth: z.number(),
+      }),
+      z.object({
+        kind: z.literal('clip'),
+        startMs: z.number(),
+        endMs: z.number(),
+        width: z.number(),
+        fps: z.number(),
+      }),
+      z.object({ kind: z.literal('audio'), maxSeconds: z.number() }),
+      z.object({ kind: z.literal('resize'), maxEdge: z.number() }),
+      z.object({ kind: z.literal('pdf-page'), page: z.number(), width: z.number() }),
+    ])
+    .optional(),
 });
 export type AttachmentMeta = z.infer<typeof AttachmentMetaSchema>;
+export type Derivation = NonNullable<AttachmentMeta['derivation']>;
+
+/** 派生物(フレーム・コンタクトシート・クリップ等)のキャッシュ状況(M23) */
+export const DerivedCacheStatsSchema = z.object({
+  /** 派生物の件数(ファイルが消えているものも含む) */
+  count: z.number(),
+  /** ディスク上に残っているファイルの合計バイト数 */
+  bytes: z.number(),
+  /** ファイルを消してある件数(必要になれば元の添付から作り直す) */
+  evicted: z.number(),
+});
+export type DerivedCacheStats = z.infer<typeof DerivedCacheStatsSchema>;
 
 export const AttachmentSchema = z.object({
   id: z.string(),
