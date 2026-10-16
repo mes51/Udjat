@@ -332,7 +332,10 @@ export function GeneralSettings() {
             <kbd>Ctrl+N</kbd> 新しい会話
           </li>
           <li>
-            <kbd>Ctrl+K</kbd> 検索
+            <kbd>Ctrl+K</kbd> 会話を横断して検索
+          </li>
+          <li>
+            <kbd>Ctrl+F</kbd> 会話内を検索(<kbd>F3</kbd> で次へ)
           </li>
           <li>
             <kbd>Ctrl+,</kbd> 設定

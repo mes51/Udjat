@@ -15,6 +15,7 @@ import { setTheme, type ThemeSetting } from '@renderer/lib/theme';
 import { useStreamStore } from '@renderer/state/stream-store';
 import { useUiStore } from '@renderer/state/ui-store';
 import { ChatPane } from './features/chat/ChatPane';
+import { useChatSearch } from './features/chat/ChatSearch';
 import { Sidebar } from './features/conversations/Sidebar';
 import { ProfilesDialog } from './features/settings/ProfilesDialog';
 
@@ -59,6 +60,15 @@ export function App() {
       } else if (mod && e.key === ',') {
         e.preventDefault();
         openProfiles(true);
+      } else if (mod && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'f') {
+        // 会話内検索(M22)。会話を開いている時だけ
+        if (useUiStore.getState().selectedConversationId) {
+          e.preventDefault();
+          useChatSearch.getState().show();
+        }
+      } else if (e.key === 'F3' && useChatSearch.getState().open) {
+        e.preventDefault();
+        useChatSearch.getState().step(e.shiftKey ? -1 : 1);
       } else if (e.key === 'Escape' && !mod) {
         const cur = useUiStore.getState().selectedConversationId;
         const runId = cur ? useStreamStore.getState().running[cur] : undefined;

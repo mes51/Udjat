@@ -1,8 +1,80 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState, type RefObject } from 'react';
 import type { Message } from '@shared/schemas';
+import {
+  applyHighlights,
+  buildSearchRegex,
+  clearHighlights,
+  collectRanges,
+  scrollRangeIntoView,
+} from '@renderer/lib/search';
 import { useStreamStore } from '@renderer/state/stream-store';
 import { useUiStore } from '@renderer/state/ui-store';
+import { useChatSearch } from './ChatSearch';
 import { MessageItem, type BranchInfo } from './MessageItem';
+
+/**
+ * 会話内検索(M22)のハイライト。描画済みの本文(data-search-text)を走査して一致箇所に
+ * CSS ハイライトを付け、件数を検索バーに知らせ、現在の一致へスクロールする。
+ * 本文はストリーミングやコードの非同期ハイライトで後から変わるので、DOM の変化を監視して取り直す。
+ */
+function useSearchHighlights(
+  containerRef: RefObject<HTMLDivElement | null>,
+  stickToBottomRef: RefObject<boolean>,
+): void {
+  const open = useChatSearch((s) => s.open);
+  const query = useChatSearch((s) => s.query);
+  const caseSensitive = useChatSearch((s) => s.caseSensitive);
+  const regex = useChatSearch((s) => s.regex);
+  const current = useChatSearch((s) => s.current);
+  const setResult = useChatSearch((s) => s.setResult);
+  const [tick, setTick] = useState(0);
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!open || !el) return;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const observer = new MutationObserver(() => {
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => setTick((t) => t + 1), 150);
+    });
+    observer.observe(el, { childList: true, characterData: true, subtree: true });
+    return () => {
+      observer.disconnect();
+      if (timer) clearTimeout(timer);
+    };
+  }, [open, containerRef]);
+
+  // 前回スクロールした一致(同じ位置に留まっている間は、本文が変わっても再スクロールしない)
+  const scrolledTo = useRef<string | null>(null);
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!open || !el || query === '') {
+      clearHighlights();
+      scrolledTo.current = null;
+      if (open) setResult(0, null);
+      return;
+    }
+    const { re, error } = buildSearchRegex(query, { caseSensitive, regex });
+    if (!re) {
+      clearHighlights();
+      setResult(0, error);
+      return;
+    }
+    const ranges = collectRanges(el, re);
+    const index = Math.min(current, Math.max(0, ranges.length - 1));
+    applyHighlights(ranges, index);
+    setResult(ranges.length, null);
+    const target = ranges[index];
+    const key = `${query}\u0000${caseSensitive}\u0000${regex}\u0000${index}`;
+    if (target && scrolledTo.current !== key) {
+      scrolledTo.current = key;
+      stickToBottomRef.current = false;
+      scrollRangeIntoView(el, target);
+    }
+  }, [open, query, caseSensitive, regex, current, tick, containerRef, stickToBottomRef, setResult]);
+
+  useEffect(() => () => clearHighlights(), []);
+}
 
 export function MessageList({
   conversationId,
@@ -28,6 +100,7 @@ export function MessageList({
   const bottomRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const stickToBottom = useRef(true);
+  useSearchHighlights(containerRef, stickToBottom);
 
   // ユーザーが上にスクロールしていたら自動追従しない
   const onScroll = () => {

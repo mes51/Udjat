@@ -9,7 +9,7 @@ import {
   SlidersHorizontal,
 } from 'lucide-react';
 import { DropdownMenu } from 'radix-ui';
-import { useCallback, useRef, useState, type DragEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, type DragEvent } from 'react';
 import type { AttachmentRef } from '@shared/schemas';
 import { Button } from '@renderer/components/ui/button';
 import { Select } from '@renderer/components/ui/input';
@@ -35,6 +35,7 @@ import { cn } from '@renderer/lib/utils';
 import { useStreamStore } from '@renderer/state/stream-store';
 import { useUiStore } from '@renderer/state/ui-store';
 import type { PendingAttachment } from './AttachmentChips';
+import { ChatSearchBar, useChatSearch } from './ChatSearch';
 import { Composer } from './Composer';
 import { ConversationSettings } from './ConversationSettings';
 import { MessageList } from './MessageList';
@@ -158,6 +159,10 @@ export function ChatPane({ conversationId }: { conversationId: string }) {
     setBranchingConv(conversationId);
     setBranching(null);
   }
+  // 会話内検索(M22)は会話ごと。切り替えたら閉じる
+  useEffect(() => {
+    useChatSearch.getState().hide();
+  }, [conversationId]);
 
   // ドラッグ&ドロップ(チャット画面全体で受ける)
   const onDragEnter = (e: DragEvent<HTMLDivElement>) => {
@@ -427,6 +432,7 @@ export function ChatPane({ conversationId }: { conversationId: string }) {
             <SlidersHorizontal size={16} />
           </Button>
         </header>
+        <ChatSearchBar />
         <MessageList
           conversationId={conversationId}
           messages={path.data ?? []}

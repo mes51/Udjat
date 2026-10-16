@@ -295,7 +295,9 @@ function CompactionCard({
           </div>
           <Collapsible.Content>
             <div className="border-border border-t px-3 py-2">
-              <Markdown text={text} />
+              <div data-search-text>
+                <Markdown text={text} />
+              </div>
               <p className="text-fg-muted mt-2 text-[11px]">
                 圧縮前の履歴で続けるには、上の応答の「ここから分岐」を使ってください(要約は別の分岐として残ります)
               </p>
@@ -402,7 +404,7 @@ function MessageItemInner({
           ) : (
             <>
               {text && (
-                <div className="text-[15px] leading-relaxed">
+                <div className="text-[15px] leading-relaxed" data-search-text>
                   <Markdown text={text} breaks />
                 </div>
               )}
@@ -423,7 +425,9 @@ function MessageItemInner({
             </>
           )
         ) : text ? (
-          <Markdown text={text} />
+          <div data-search-text>
+            <Markdown text={text} />
+          </div>
         ) : streaming ? (
           <div className="text-fg-muted text-sm">応答を待っています…</div>
         ) : null}

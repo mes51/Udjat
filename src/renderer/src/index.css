@@ -306,3 +306,13 @@ input[type='checkbox'] {
   margin: 0;
   background: transparent !important;
 }
+
+/* 会話内検索(M22)の一致箇所。CSS Custom Highlight API(lib/search.ts で登録) */
+::highlight(udjat-search) {
+  background-color: color-mix(in srgb, var(--color-warning) 35%, transparent);
+  color: var(--color-fg);
+}
+::highlight(udjat-search-current) {
+  background-color: var(--color-accent);
+  color: var(--color-accent-fg);
+}
