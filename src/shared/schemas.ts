@@ -345,6 +345,20 @@ export type McpServerStatus = z.infer<typeof McpServerStatusSchema>;
 export const ToolApprovalDecisionSchema = z.enum(['allow', 'allow-conversation', 'deny']);
 export type ToolApprovalDecision = z.infer<typeof ToolApprovalDecisionSchema>;
 
+/**
+ * 承認の対象範囲(M24)。ツールが引数から決める(例: web_fetch の取得先ドメイン)。
+ * 「この会話では常に許可」はツール名ではなくこの key を会話に記録し、同じ範囲の呼び出しだけを通す
+ */
+export const ApprovalScopeSchema = z.object({
+  /** 会話に記録するキー(例: "host:example.com") */
+  key: z.string(),
+  /** 承認カードに出す短い名前(例: "example.com") */
+  label: z.string(),
+  /** 承認カードの補足(例: 取得する URL) */
+  description: z.string().optional(),
+});
+export type ApprovalScope = z.infer<typeof ApprovalScopeSchema>;
+
 export const UsageSchema = z.object({
   promptTokens: z.number().optional(),
   completionTokens: z.number().optional(),
@@ -394,6 +408,8 @@ export const ConversationSchema = z.object({
   disabledCategories: z.array(z.string()),
   /** 無効にした個別ツール名 */
   disabledTools: z.array(z.string()),
+  /** この会話で「常に許可」した承認範囲のキー(例: "host:example.com")。M24 */
+  approvedScopes: z.array(z.string()),
   activeLeafId: z.string().nullable(),
   createdAt: z.number(),
   updatedAt: z.number(),
@@ -409,6 +425,7 @@ export const ConversationPatchSchema = ConversationSchema.pick({
   params: true,
   disabledCategories: true,
   disabledTools: true,
+  approvedScopes: true,
   activeLeafId: true,
 }).partial();
 export type ConversationPatch = z.infer<typeof ConversationPatchSchema>;
@@ -421,8 +438,12 @@ export const ChatEventSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('usage'), usage: UsageSchema }),
   z.object({ type: z.literal('done'), finishReason: FinishReasonSchema }),
   z.object({ type: z.literal('error'), message: z.string() }),
-  /** ツール承認待ち(renderer は承認カードを出す) */
-  z.object({ type: z.literal('tool-approval-request'), call: ToolCallSchema }),
+  /** ツール承認待ち(renderer は承認カードを出す)。scope があれば範囲(ドメイン等)の承認 */
+  z.object({
+    type: z.literal('tool-approval-request'),
+    call: ToolCallSchema,
+    scope: ApprovalScopeSchema.optional(),
+  }),
   /** 送信前のモデルロード(M10)。loading の間はヘッダーに進行を出す */
   z.object({
     type: z.literal('model-load'),

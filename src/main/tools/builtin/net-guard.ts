@@ -1,5 +1,6 @@
 import { lookup } from 'node:dns/promises';
 import { isIP } from 'node:net';
+import type { ApprovalScope } from '../types';
 
 /**
  * SSRF 対策。LLM に指示された URL がプライベートアドレス(LLM サーバー自身や
@@ -29,6 +30,49 @@ export function isPrivateIp(ip: string): boolean {
     return false;
   }
   return false;
+}
+
+/**
+ * 承認の単位にするドメイン(M24)。ホスト名を小文字にし、先頭の "www." は落とす
+ * (www.example.com と example.com を同じ許可で通す)。IP アドレスはそのまま
+ */
+export function approvalDomain(hostname: string): string {
+  const h = hostname.toLowerCase().replace(/^\[|\]$/g, '');
+  if (isIP(h)) return h;
+  return h.replace(/^www\./, '');
+}
+
+/** ホストが承認済みドメインに含まれるか(同じか、そのサブドメイン) */
+export function domainCovers(approved: string, hostname: string): boolean {
+  const h = approvalDomain(hostname);
+  const a = approved.toLowerCase();
+  return h === a || h.endsWith(`.${a}`);
+}
+
+/**
+ * URL を取るツールの承認範囲(M24)。設定 webFetch.domainApproval が false なら範囲の承認は使わない(既定は使う)。
+ * URL が壊れていれば null(実行時に別のエラーになる)
+ */
+export function urlApprovalScope(
+  rawUrl: unknown,
+  getSetting: (key: string) => unknown,
+  action = '取得',
+): ApprovalScope | null {
+  if (getSetting('webFetch.domainApproval') === false) return null;
+  if (typeof rawUrl !== 'string') return null;
+  let url: URL;
+  try {
+    url = new URL(rawUrl);
+  } catch {
+    return null;
+  }
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') return null;
+  const domain = approvalDomain(url.hostname);
+  return {
+    key: `host:${domain}`,
+    label: domain,
+    description: `${action}: ${url.href.length > 200 ? `${url.href.slice(0, 200)}…` : url.href}`,
+  };
 }
 
 export interface UrlGuardOptions {

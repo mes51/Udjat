@@ -68,6 +68,7 @@ describe('splitAtCompaction / buildChatRequest', () => {
         params: {},
         disabledCategories: [],
         disabledTools: [],
+        approvedScopes: [],
         activeLeafId: null,
         createdAt: 0,
         updatedAt: 0,

@@ -4,7 +4,7 @@ import TurndownService from 'turndown';
 import { gfm } from 'turndown-plugin-gfm';
 import type { RegisteredTool, ToolContext } from '../types';
 import { fail, num, ok, str } from '../types';
-import { checkUrl } from './net-guard';
+import { checkUrl, urlApprovalScope } from './net-guard';
 
 const MAX_BYTES = 3 * 1024 * 1024;
 const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Udjat/0.1 (+local LLM chat client)';
@@ -153,6 +153,8 @@ export const webFetchTool: RegisteredTool = {
   source: { kind: 'builtin' },
   category: 'web',
   defaultPolicy: 'auto',
+  // 取得先のドメインごとに承認する(会話単位で記憶)。M24
+  approvalScope: (args, getSetting) => urlApprovalScope(args['url'], getSetting, '取得'),
   execute: async (args, ctx: ToolContext) => {
     const url = str(args, 'url');
     const maxChars = num(args, 'max_chars', 20000, 500, 100000);

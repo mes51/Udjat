@@ -1071,33 +1071,50 @@ export class ChatService {
       emit: (event: ChatEvent) => void;
     },
   ): Promise<{ lastId: string; result: ToolResult; detached?: boolean }> {
-    const { messages, tools } = this.deps;
+    const { conversations, messages, tools } = this.deps;
     const startedAt = Date.now();
 
     // 承認
     const policy = tools.policyFor(call.name);
     const parsed = parseToolArgs(call.args);
+    const tool = tools.get(call.name);
     // ツール側が「この引数なら必ず承認」と言うもの(権限を宣言したコード実行など)は
     // ポリシー auto や「この会話では常に許可」でも確認する
     const forced =
-      !parsed.error &&
-      policy !== 'deny' &&
-      (tools.get(call.name)?.requiresApproval?.(parsed.args) ?? false);
+      !parsed.error && policy !== 'deny' && (tool?.requiresApproval?.(parsed.args) ?? false);
+    // 範囲(取得先ドメイン等)の承認(M24)。会話に記録された範囲に無ければ、ポリシー auto でも確認する
+    const scope =
+      !parsed.error && policy !== 'deny'
+        ? (tool?.approvalScope?.(parsed.args, this.deps.getSetting ?? (() => null)) ?? null)
+        : null;
+    const scopeNeeded =
+      !!scope && !(conversations.get(ctx.conversationId)?.approvedScopes ?? []).includes(scope.key);
     let approval: ToolMeta['approval'] = 'auto';
     let denyReason: string | undefined;
     if (policy === 'deny') {
       approval = 'denied';
     } else if (
       forced ||
+      scopeNeeded ||
       (policy === 'ask' && !this.conversationAllow.get(ctx.conversationId)?.has(call.name))
     ) {
-      ctx.emit({ type: 'tool-approval-request', call });
+      ctx.emit({ type: 'tool-approval-request', call, ...(scope ? { scope } : {}) });
       const answer = await this.awaitApproval(ctx.runId, call.id, ctx.signal);
       const decision = answer.decision;
       if (answer.reason) denyReason = answer.reason;
       if (decision === 'deny') approval = 'denied';
       else if (decision === 'allow-conversation') {
         approval = 'approved-conversation';
+        // 範囲の承認は会話に永続化する(設定パネルから取り消せる)
+        if (scope) {
+          const conv = conversations.get(ctx.conversationId);
+          if (conv && !conv.approvedScopes.includes(scope.key))
+            conversations.update(
+              conv.id,
+              { approvedScopes: [...conv.approvedScopes, scope.key] },
+              { touch: false },
+            );
+        }
         // 強制承認のツールは会話単位の常時許可には入れない(次回も権限を確認する)
         if (!forced) {
           let set = this.conversationAllow.get(ctx.conversationId);
@@ -1110,13 +1127,15 @@ export class ChatService {
     let result: ToolResult;
     ctx.emit({ type: 'tool-start', call });
     if (approval === 'denied') {
+      // 「ユーザーが example.com へのアクセスを拒否しました」/「ユーザーが実行を拒否しました」
+      const what = scopeNeeded && scope ? ` ${scope.label} へのアクセス` : '実行';
       result = {
         text:
           policy === 'deny'
             ? 'error: このツールは設定で無効化されています'
             : denyReason
-              ? `error: ユーザーが実行を拒否しました。理由: ${denyReason}\n(理由に沿って修正するか、必要なら意図を説明してから再試行してください。ユーザーへの返答は続けてください)`
-              : 'error: ユーザーが実行を拒否しました(ユーザーへの返答は続けてください)',
+              ? `error: ユーザーが${what}を拒否しました。理由: ${denyReason}\n(理由に沿って修正するか、必要なら意図を説明してから再試行してください。ユーザーへの返答は続けてください)`
+              : `error: ユーザーが${what}を拒否しました(ユーザーへの返答は続けてください)`,
         isError: true,
       };
     } else {

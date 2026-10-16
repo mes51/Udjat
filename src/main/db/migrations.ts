@@ -132,4 +132,12 @@ export const migrations: readonly Migration[] = [
       ALTER TABLE server_profiles ADD COLUMN model_management TEXT NOT NULL DEFAULT '{}';
     `,
   },
+  {
+    // M24: 会話で「常に許可」した承認範囲(web_fetch のドメイン等)
+    version: 5,
+    name: 'approved-scopes',
+    up: `
+      ALTER TABLE conversations ADD COLUMN approved_scopes TEXT NOT NULL DEFAULT '[]';
+    `,
+  },
 ];

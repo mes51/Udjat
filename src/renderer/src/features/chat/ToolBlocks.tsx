@@ -327,13 +327,21 @@ export function ApprovalCard({ callId }: { callId: string }) {
   };
   const code = approval.call.name === 'run_javascript' ? parseCodeArgs(approval.call.args) : null;
   const write = approval.call.name === 'fs_write' ? parseWriteArgs(approval.call.args) : null;
+  // 範囲(取得先ドメイン等)の承認(M24)。「この会話では常に許可」はその範囲だけを許可する
+  const scope = approval.scope;
 
   return (
     <div className="border-accent/40 bg-accent/10 mt-2 rounded-md border px-3 py-2 text-sm">
       <div className="flex items-center gap-1.5">
         <ShieldQuestion size={15} className="text-accent" />
         <span>
-          {code ? (
+          {scope ? (
+            <>
+              ツール <span className="font-mono">{approval.call.name}</span> が{' '}
+              <span className="font-medium">{scope.label}</span>{' '}
+              にアクセスしようとしています。許可しますか?
+            </>
+          ) : code ? (
             code.perms.length > 0 ? (
               'コードの実行と、次の権限を許可しますか?'
             ) : (
@@ -376,14 +384,18 @@ export function ApprovalCard({ callId }: { callId: string }) {
             {code.code}
           </pre>
         </>
+      ) : scope ? (
+        <div className="text-fg-muted my-2 text-[11px] leading-relaxed break-all">
+          {scope.description ?? prettyArgs(approval.call.args)}
+        </div>
       ) : (
         <pre className="text-fg-muted my-2 max-h-40 overflow-auto text-[11px] leading-relaxed">
           {prettyArgs(approval.call.args)}
         </pre>
       )}
-      <div className="flex gap-2">
+      <div className="flex flex-wrap gap-2">
         <Button size="sm" disabled={busy} onClick={() => void decide('allow')}>
-          <Check size={13} /> 許可
+          <Check size={13} /> {scope ? '許可(今回のみ)' : '許可'}
         </Button>
         <Button
           size="sm"
@@ -391,12 +403,14 @@ export function ApprovalCard({ callId }: { callId: string }) {
           disabled={busy}
           onClick={() => void decide('allow-conversation')}
           title={
-            code && code.perms.length > 0
-              ? '権限を宣言した実行は毎回確認します(権限なしの実行だけ自動になります)'
-              : undefined
+            scope
+              ? `この会話では ${scope.label}(サブドメインを含む)へのアクセスを確認なしで許可します。会話の設定から取り消せます`
+              : code && code.perms.length > 0
+                ? '権限を宣言した実行は毎回確認します(権限なしの実行だけ自動になります)'
+                : undefined
           }
         >
-          この会話では常に許可
+          {scope ? `この会話では ${scope.label} を許可` : 'この会話では常に許可'}
         </Button>
         <Button size="sm" variant="danger" disabled={busy} onClick={() => void decide('deny')}>
           <X size={13} /> 拒否

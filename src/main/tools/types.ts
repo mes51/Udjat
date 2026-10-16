@@ -1,5 +1,7 @@
-import type { Capabilities, ToolPolicy } from '@shared/schemas';
+import type { ApprovalScope, Capabilities, ToolPolicy } from '@shared/schemas';
 import type { ToolDefinition } from '@main/providers';
+
+export type { ApprovalScope };
 
 /** ツール実行時に渡すコンテキスト */
 export interface ToolContext {
@@ -45,6 +47,15 @@ export interface RegisteredTool {
    * (例: run_javascript がファイル/ネットワーク権限を宣言した時)
    */
   requiresApproval?: (args: Record<string, unknown>) => boolean;
+  /**
+   * 引数から承認の「範囲」を決める(M24。例: web_fetch の取得先ドメイン)。
+   * 範囲が会話の approvedScopes に無ければ、ポリシーが auto でも承認を求める。
+   * 「この会話では常に許可」でその範囲のキーが会話に記録される。null なら範囲の承認は不要
+   */
+  approvalScope?: (
+    args: Record<string, unknown>,
+    getSetting: (key: string) => unknown,
+  ) => ApprovalScope | null;
   /**
    * 今は使えない理由を返す(使える時は null)。理由がある間はモデルに定義を渡さず、
    * UI では灰色表示にする(例: ファイルツールで許可フォルダが未設定)

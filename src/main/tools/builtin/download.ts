@@ -5,7 +5,7 @@ import { kindFromMime, mimeFromName, type MediaStore } from '@main/media/store';
 import type { RegisteredTool, ToolMedia } from '../types';
 import { fail, num, ok, str } from '../types';
 import { checkPath, readRoots } from './files';
-import { checkUrl } from './net-guard';
+import { checkUrl, urlApprovalScope } from './net-guard';
 
 /**
  * バイナリのダウンロード(M18)。URL の内容を添付ストアに取り込み、画像ならモデルに見せる。
@@ -222,6 +222,8 @@ export function createDownloadTools({ store }: DownloadToolDeps): RegisteredTool
     requiresApproval: (args) =>
       (typeof args['max_bytes'] === 'number' && args['max_bytes'] > DEFAULT_DOWNLOAD_BYTES) ||
       (typeof args['save_to'] === 'string' && args['save_to'].trim() !== ''),
+    // ダウンロード元のドメインごとに承認する(web_fetch と同じ範囲を共有)。M24
+    approvalScope: (args, getSetting) => urlApprovalScope(args['url'], getSetting, 'ダウンロード'),
     execute: async (args, ctx) => {
       const url = str(args, 'url');
       const maxBytes = Math.floor(

@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { ChatRunEvent, FinishReason, ToolCall, Usage } from '@shared/schemas';
+import type { ApprovalScope, ChatRunEvent, FinishReason, ToolCall, Usage } from '@shared/schemas';
 
 /**
  * ストリーミング中の assistant メッセージの一時状態。
@@ -29,6 +29,8 @@ export interface PendingApproval {
   conversationId: string;
   messageId: string;
   call: ToolCall;
+  /** 範囲(ドメイン等)の承認なら、その範囲(M24) */
+  scope?: ApprovalScope | undefined;
 }
 
 interface StreamStore {
@@ -123,6 +125,7 @@ export const useStreamStore = create<StreamStore>((set) => ({
               conversationId: ev.conversationId,
               messageId: ev.messageId,
               call: e.call,
+              scope: e.scope,
             },
           },
         };

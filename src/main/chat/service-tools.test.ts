@@ -234,6 +234,54 @@ describe('ChatService tool loop', () => {
     expect(executed).toHaveLength(2);
   });
 
+  it('asks per approval scope (domain) even for auto tools, and remembers it per conversation (M24)', async () => {
+    server = await toolThenAnswerServer();
+    // get_weather(auto)に「city をドメインに見立てた範囲」を付ける
+    const t = registry.get('get_weather')!;
+    t.approvalScope = (args) =>
+      typeof args['city'] === 'string'
+        ? { key: `host:${args['city'].toLowerCase()}`, label: args['city'] }
+        : null;
+    const c = await setup();
+
+    const r1 = await service.send({ conversationId: c.id, text: 'x' });
+    await waitUntil(() => events.some((e) => e.event.type === 'tool-approval-request'));
+    const req = events.find((e) => e.event.type === 'tool-approval-request')!.event;
+    expect(req).toMatchObject({ scope: { key: 'host:tokyo', label: 'Tokyo' } });
+    expect(executed).toHaveLength(0);
+    service.approve(r1.runId, 'call_1', 'allow-conversation');
+    await service.waitFor(r1.runId);
+    expect(executed).toHaveLength(1);
+    expect(conversations.get(c.id)!.approvedScopes).toEqual(['host:tokyo']);
+    const meta = messages
+      .pathToRoot(conversations.get(c.id)!.activeLeafId!)
+      .find((m) => m.role === 'tool')!.toolMeta as { approval: string };
+    expect(meta.approval).toBe('approved-conversation');
+
+    // 同じ範囲は確認なし
+    events = [];
+    const r2 = await service.send({ conversationId: c.id, text: 'y' });
+    await service.waitFor(r2.runId);
+    expect(events.some((e) => e.event.type === 'tool-approval-request')).toBe(false);
+    expect(executed).toHaveLength(2);
+
+    // 範囲を取り消すとまた確認し、拒否は範囲の名前入りで伝わる
+    conversations.update(c.id, { approvedScopes: [] });
+    events = [];
+    const r3 = await service.send({ conversationId: c.id, text: 'z' });
+    await waitUntil(() => events.some((e) => e.event.type === 'tool-approval-request'));
+    const req3 = events.find((e) => e.event.type === 'tool-approval-request')!.event;
+    expect(req3).toMatchObject({ scope: { key: 'host:tokyo' } });
+    // モックは呼び出しごとに call_<n> を振るので、承認要求から id を取る
+    service.approve(r3.runId, (req3 as { call: { id: string } }).call.id, 'deny');
+    await service.waitFor(r3.runId);
+    expect(executed).toHaveLength(2);
+    const path = messages.pathToRoot(conversations.get(c.id)!.activeLeafId!);
+    const denied = path.filter((m) => m.role === 'tool').at(-1)!;
+    expect((denied.parts[0] as { text: string }).text).toContain('Tokyo へのアクセスを拒否');
+    delete t.approvalScope;
+  });
+
   it('stops at the iteration limit', async () => {
     server = await toolThenAnswerServer({ alwaysCallTool: true });
     const c = await setup();

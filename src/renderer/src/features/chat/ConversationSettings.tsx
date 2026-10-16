@@ -236,6 +236,7 @@ export function ConversationSettings({ conversation }: { conversation: Conversat
         <ModelCapabilities profileId={conversation.serverProfileId} model={conversation.model} />
       )}
       <ConversationTools conversation={conversation} />
+      <ApprovedScopes conversation={conversation} />
       <section>
         <SectionTitle description="動画のフレームやコンタクトシート、クリップ、PDF のページ画像はキャッシュです。消しても会話の記録は残り、表示やモデルへの送信で必要になれば元の添付から作り直します">
           フレームのキャッシュ
@@ -541,6 +542,51 @@ function ConversationTools({ conversation }: { conversation: Conversation }) {
           );
         })}
       </div>
+    </section>
+  );
+}
+
+/**
+ * この会話で「常に許可」した承認範囲(M24)。今は web_fetch / web_download の取得先ドメイン("host:" で始まるキー)。
+ * × で取り消すと、次回のアクセスで再び承認カードが出る
+ */
+function ApprovedScopes({ conversation }: { conversation: Conversation }) {
+  const { update } = useConversationMutations();
+  const scopes = conversation.approvedScopes;
+  const remove = (key: string) =>
+    update.mutate({
+      id: conversation.id,
+      patch: { approvedScopes: scopes.filter((k) => k !== key) },
+    });
+  return (
+    <section>
+      <SectionTitle description="web_fetch / web_download がこの会話で確認なしにアクセスできるドメイン(サブドメインを含む)。承認カードの「この会話では … を許可」で増えます">
+        許可したドメイン
+      </SectionTitle>
+      {scopes.length === 0 ? (
+        <p className="text-fg-muted text-[11px]">まだありません</p>
+      ) : (
+        <ul className="flex flex-wrap gap-1.5">
+          {scopes.map((key) => (
+            <li
+              key={key}
+              className="border-border bg-surface flex items-center gap-1 rounded-full border py-0.5 pr-1 pl-2.5 text-xs"
+            >
+              <span className="font-mono">{key.replace(/^host:/, '')}</span>
+              <button
+                type="button"
+                aria-label={`${key.replace(/^host:/, '')} の許可を取り消す`}
+                title="許可を取り消す"
+                className="text-fg-muted hover:text-fg rounded-full p-0.5"
+                disabled={update.isPending}
+                onClick={() => remove(key)}
+              >
+                <X size={12} />
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
     </section>
   );
 }

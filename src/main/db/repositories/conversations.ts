@@ -12,6 +12,7 @@ interface Row {
   params: string;
   disabled_categories: string;
   disabled_tools: string;
+  approved_scopes: string;
   active_leaf_id: string | null;
   created_at: number;
   updated_at: number;
@@ -37,6 +38,7 @@ function fromRow(r: Row): Conversation {
     params: JSON.parse(r.params) as Conversation['params'],
     disabledCategories: parseList(r.disabled_categories),
     disabledTools: parseList(r.disabled_tools),
+    approvedScopes: parseList(r.approved_scopes),
     activeLeafId: r.active_leaf_id,
     createdAt: r.created_at,
     updatedAt: r.updated_at,
@@ -104,7 +106,7 @@ export class ConversationRepository {
     this.db
       .prepare(
         `UPDATE conversations SET title = ?, pinned = ?, server_profile_id = ?, model = ?, system_prompt = ?,
-           params = ?, disabled_categories = ?, disabled_tools = ?, active_leaf_id = ?, updated_at = ? WHERE id = ?`,
+           params = ?, disabled_categories = ?, disabled_tools = ?, approved_scopes = ?, active_leaf_id = ?, updated_at = ? WHERE id = ?`,
       )
       .run(
         next.title,
@@ -115,6 +117,7 @@ export class ConversationRepository {
         JSON.stringify(next.params),
         JSON.stringify(next.disabledCategories),
         JSON.stringify(next.disabledTools),
+        JSON.stringify(next.approvedScopes),
         next.activeLeafId,
         opts.touch === false ? cur.updatedAt : Date.now(),
         id,

@@ -28,6 +28,7 @@ const conversation: Conversation = {
   params: { temperature: 0.2 },
   disabledCategories: [],
   disabledTools: [],
+  approvedScopes: [],
   activeLeafId: null,
   createdAt: 0,
   updatedAt: 0,

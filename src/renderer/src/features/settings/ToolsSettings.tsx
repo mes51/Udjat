@@ -26,11 +26,17 @@ function WebSearchSettings() {
   const searxng = useSetting<string>('webSearch.searxngUrl');
   const brave = useSetting<string>('webSearch.braveApiKey');
   const allowHosts = useSetting<string[]>('webFetch.allowHosts');
+  const domainApproval = useSetting<boolean>('webFetch.domainApproval');
   const save = useSettingMutation();
   const [searxngText, setSearxngText] = useState<string | null>(null);
   const [braveText, setBraveText] = useState<string | null>(null);
   const [allowText, setAllowText] = useState<string | null>(null);
-  const loaded = backend.isFetched && searxng.isFetched && brave.isFetched && allowHosts.isFetched;
+  const loaded =
+    backend.isFetched &&
+    searxng.isFetched &&
+    brave.isFetched &&
+    allowHosts.isFetched &&
+    domainApproval.isFetched;
   if (!loaded) return <p className="text-fg-muted text-xs">読み込み中…</p>;
   const cur = {
     backend: backend.data ?? 'duckduckgo',
@@ -42,6 +48,22 @@ function WebSearchSettings() {
 
   return (
     <div className="border-border bg-surface-2/60 flex flex-col gap-3 rounded-md border px-3 py-3">
+      <label className="flex items-start gap-2 text-sm">
+        <input
+          type="checkbox"
+          className="mt-1"
+          checked={domainApproval.data !== false}
+          disabled={save.isPending}
+          onChange={(e) => commit('webFetch.domainApproval', e.target.checked)}
+        />
+        <span>
+          web_fetch / web_download の取得先をドメインごとに承認する
+          <span className="text-fg-muted block text-[11px]">
+            初めてのドメインには承認カードが出ます。「この会話では …
+            を許可」で許可したドメインは会話ごとに記憶され、会話の設定から取り消せます。ポリシーが「自動で実行」でも確認します
+          </span>
+        </span>
+      </label>
       <div className="grid grid-cols-2 gap-3">
         <Field
           label="Web 検索バックエンド"
